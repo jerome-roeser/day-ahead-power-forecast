@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.3.0  # Specify the latest Ruff version
+    rev: v0.11.2  # Specify the latest Ruff version
     hooks:
       - id: ruff
         types: [python]
