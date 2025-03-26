@@ -1,13 +1,14 @@
 import glob
 import os
-import time
 import pickle
+import time
 
+import torch
 from colorama import Fore, Style
-from tensorflow import keras
 from google.cloud import storage
 
 from day_ahead_power_forecast.params import *
+
 
 def save_results(params: dict, metrics: dict, history: dict = None) -> None:
     """
@@ -27,20 +28,24 @@ def save_results(params: dict, metrics: dict, history: dict = None) -> None:
 
     # Save metrics locally
     if metrics is not None:
-        metrics_path = os.path.join(LOCAL_REGISTRY_PATH, "metrics", timestamp + ".pickle")
+        metrics_path = os.path.join(
+            LOCAL_REGISTRY_PATH, "metrics", timestamp + ".pickle"
+        )
         with open(metrics_path, "wb") as file:
             pickle.dump(metrics, file)
 
     # Save history locally
     if history is not None:
-        history_path = os.path.join(LOCAL_REGISTRY_PATH, "histories", timestamp + ".pickle")
+        history_path = os.path.join(
+            LOCAL_REGISTRY_PATH, "histories", timestamp + ".pickle"
+        )
         with open(history_path, "wb") as file:
             pickle.dump(history, file)
 
     print("✅ Results saved locally")
 
 
-def save_model(model: keras.Model = None, forecast_features: bool = False) -> None:
+def save_model(model: torch.nn.Module = None, forecast_features: bool = False) -> None:
     """
     Persist trained model locally on the hard drive at f"{LOCAL_REGISTRY_PATH}/models/{timestamp}.h5"
     - if MODEL_TARGET='gcs', also persist it in your bucket on GCS at "models/{timestamp}.h5" --> unit 02 only
@@ -51,10 +56,14 @@ def save_model(model: keras.Model = None, forecast_features: bool = False) -> No
 
     # Save model locally
     if forecast_features:
-        model_path = os.path.join(LOCAL_REGISTRY_PATH, "models", "full", f"{timestamp}.h5")
+        model_path = os.path.join(
+            LOCAL_REGISTRY_PATH, "models", "full", f"{timestamp}.pt"
+        )
     else:
-        model_path = os.path.join(LOCAL_REGISTRY_PATH, "models", "pv", f"{timestamp}.h5")
-    model.save(model_path)
+        model_path = os.path.join(
+            LOCAL_REGISTRY_PATH, "models", "pv", f"{timestamp}.pt"
+        )
+    torch.save(model, model_path)
 
     print("✅ Model saved locally")
 
@@ -62,7 +71,9 @@ def save_model(model: keras.Model = None, forecast_features: bool = False) -> No
         # 🎁 We give you this piece of code as a gift. Please read it carefully! Add a breakpoint if needed!
         print(Fore.BLUE + f"\nSave model to GCS @ {BUCKET_NAME}..." + Style.RESET_ALL)
 
-        model_filename = model_path.split("/")[-1] # e.g. "20230208-161047.h5" for instance
+        model_filename = model_path.split("/")[
+            -1
+        ]  # e.g. "20250326-161047.pt" for instance
         client = storage.Client()
         bucket = client.bucket(BUCKET_NAME)
         if forecast_features:
@@ -78,7 +89,7 @@ def save_model(model: keras.Model = None, forecast_features: bool = False) -> No
     return None
 
 
-def load_model(stage="Production", forecast_features: bool = False) -> keras.Model:
+def load_model(stage="Production", forecast_features: bool = False) -> torch.nn.Module:
     """
     Return a saved model:
     - locally (latest one in alphabetical order)
@@ -90,7 +101,9 @@ def load_model(stage="Production", forecast_features: bool = False) -> keras.Mod
     """
 
     if MODEL_TARGET == "local":
-        print(Fore.BLUE + f"\nLoad latest model from local registry..." + Style.RESET_ALL)
+        print(
+            Fore.BLUE + "\nLoad latest model from local registry..." + Style.RESET_ALL
+        )
 
         # Get the latest model version name by the timestamp on disk
         if forecast_features:
@@ -103,10 +116,9 @@ def load_model(stage="Production", forecast_features: bool = False) -> keras.Mod
         if not local_model_paths:
             return None
 
-
         most_recent_model_path_on_disk = sorted(local_model_paths)[-1]
 
-        print(Fore.BLUE + f"\nLoad latest model from disk..." + Style.RESET_ALL)
+        print(Fore.BLUE + "\nLoad latest model from disk..." + Style.RESET_ALL)
 
         latest_model = keras.models.load_model(most_recent_model_path_on_disk)
 
@@ -116,14 +128,16 @@ def load_model(stage="Production", forecast_features: bool = False) -> keras.Mod
 
     elif MODEL_TARGET == "gcs":
         # 🎁 We give you this piece of code as a gift. Please read it carefully! Add a breakpoint if needed!
-        print(Fore.BLUE + f"\nLoad latest model from GCS..." + Style.RESET_ALL)
+        print(Fore.BLUE + "\nLoad latest model from GCS..." + Style.RESET_ALL)
 
         client = storage.Client()
         blobs = list(client.get_bucket(BUCKET_NAME).list_blobs(prefix="model"))
 
         try:
             latest_blob = max(blobs, key=lambda x: x.updated)
-            latest_model_path_to_save = os.path.join(LOCAL_REGISTRY_PATH, latest_blob.name)
+            latest_model_path_to_save = os.path.join(
+                LOCAL_REGISTRY_PATH, latest_blob.name
+            )
             latest_blob.download_to_filename(latest_model_path_to_save)
 
             latest_model = keras.models.load_model(latest_model_path_to_save)
@@ -131,7 +145,8 @@ def load_model(stage="Production", forecast_features: bool = False) -> keras.Mod
             print("✅ Latest model downloaded from cloud storage")
 
             return latest_model
-        except:
+        except Exception as e:
+            print(e)
             print(f"\n❌ No model found in GCS bucket {BUCKET_NAME}")
 
             return None
