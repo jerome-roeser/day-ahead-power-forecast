@@ -20,4 +20,4 @@ select = [
     "F",  # pyflakes
     "I",  # isort
 ]
-ignore = ["F405"]  # may be undefined, or defined from star imports
+ignore = ["F403", "F405"]  # may be undefined, or defined from star imports
