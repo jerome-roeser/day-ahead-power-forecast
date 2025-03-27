@@ -47,9 +47,12 @@ def save_results(params: dict, metrics: dict, history: dict = None) -> None:
 
 def save_model(model: torch.nn.Module = None, forecast_features: bool = False) -> None:
     """
-    Persist trained model locally on the hard drive at f"{LOCAL_REGISTRY_PATH}/models/{timestamp}.h5"
-    - if MODEL_TARGET='gcs', also persist it in your bucket on GCS at "models/{timestamp}.h5" --> unit 02 only
-    - if MODEL_TARGET='mlflow', also persist it on MLflow instead of GCS (for unit 0703 only) --> unit 03 only
+    Persist trained model locally on the hard drive at
+                f"{LOCAL_REGISTRY_PATH}/models/{timestamp}.pt"
+    - if MODEL_TARGET='gcs', also persist it in your bucket on GCS at
+                "models/{timestamp}.h5" --> unit 02 only
+    - if MODEL_TARGET='mlflow', also persist it on MLflow instead of GCS
+                (for unit 0703 only) --> unit 03 only
     """
 
     timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -68,7 +71,6 @@ def save_model(model: torch.nn.Module = None, forecast_features: bool = False) -
     print("✅ Model saved locally")
 
     if MODEL_TARGET == "gcs":
-        # 🎁 We give you this piece of code as a gift. Please read it carefully! Add a breakpoint if needed!
         print(Fore.BLUE + f"\nSave model to GCS @ {BUCKET_NAME}..." + Style.RESET_ALL)
 
         model_filename = model_path.split("/")[
@@ -120,14 +122,13 @@ def load_model(stage="Production", forecast_features: bool = False) -> torch.nn.
 
         print(Fore.BLUE + "\nLoad latest model from disk..." + Style.RESET_ALL)
 
-        latest_model = keras.models.load_model(most_recent_model_path_on_disk)
+        latest_model = torch.load(most_recent_model_path_on_disk, weights_only=False)
 
         print("✅ Model loaded from local disk")
 
         return latest_model
 
     elif MODEL_TARGET == "gcs":
-        # 🎁 We give you this piece of code as a gift. Please read it carefully! Add a breakpoint if needed!
         print(Fore.BLUE + "\nLoad latest model from GCS..." + Style.RESET_ALL)
 
         client = storage.Client()
@@ -140,7 +141,7 @@ def load_model(stage="Production", forecast_features: bool = False) -> torch.nn.
             )
             latest_blob.download_to_filename(latest_model_path_to_save)
 
-            latest_model = keras.models.load_model(latest_model_path_to_save)
+            latest_model = torch.load(latest_model_path_to_save, weights_only=False)
 
             print("✅ Latest model downloaded from cloud storage")
 

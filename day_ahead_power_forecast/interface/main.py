@@ -37,7 +37,8 @@ def preprocess() -> None:
     - Cache query result as a local CSV if it doesn't exist locally
     - Process query data
     - Store processed data on your personal BQ (truncate existing table if it exists)
-    - No need to cache processed data as CSV (it will be cached when queried back from BQ during training)
+    - No need to cache processed data as CSV (it will be cached when queried back
+        from BQ during training)
     """
 
     print(Fore.MAGENTA + "\n ⭐️ Use case: preprocess" + Style.RESET_ALL)
@@ -199,7 +200,7 @@ def train(
     val_df_forecast = data_processed_forecast[
         int(n_forecast * 0.7 / 24) * 24 : int(n_forecast * 0.9 / 24) * 24
     ]
-    test_df_forecast = data_processed_forecast[int(n_forecast * 0.9 / 24) * 24 :]
+    # test_df_forecast = data_processed_forecast[int(n_forecast * 0.9 / 24) * 24 :]
 
     train_dataset_forecast = SequenceForecastDataset(
         df=train_df_forecast, label_columns=["electricity"]
@@ -207,24 +208,24 @@ def train(
     val_dataset_forecast = SequenceForecastDataset(
         df=val_df_forecast, label_columns=["electricity"]
     )
-    test_dataset_forecast = SequenceForecastDataset(
-        df=test_df_forecast, label_columns=["electricity"]
-    )
+    # test_dataset_forecast = SequenceForecastDataset(
+    #     df=test_df_forecast, label_columns=["electricity"]
+    # )
 
     if DATASET == "pv":
         train_dataset = sequences_pv.train
         val_dataset = sequences_pv.val
-        test_dataset = sequences_pv.test
+        # test_dataset = sequences_pv.test
         n_features = train_dataset.tensors[0].shape[-1]
     else:
         train_dataset = train_dataset_forecast
         val_dataset = val_dataset_forecast
-        test_dataset = test_dataset_forecast
+        # test_dataset = test_dataset_forecast
         n_features = train_dataset.example[0].shape[-1]
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+    # test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
     model = RNNModel(p=n_features)
     loss_fn = nn.MSELoss()
@@ -233,7 +234,7 @@ def train(
     def training_one_epoch(model, train_dataloader, val_dataloader):
         size = len(train_dataloader.dataset)
         running_loss = 0
-        earlystopping = 0
+        # earlystopping = 0
         for batch, data in enumerate(train_dataloader):
             X, y = data
             output = model(X)
@@ -255,7 +256,8 @@ def train(
             vsize = len(val_dataloader.dataset)
             running_vloss = 0.0
 
-            # In evaluation mode some model specific operations can be omitted eg. dropout layer
+            # In evaluation mode some model specific operations can be omitted
+            #  -> eg. dropout layer
             # Switching to evaluation mode, eg. turning off regularisation
             model.train(False)
             for j, vdata in enumerate(val_dataloader):
@@ -284,13 +286,12 @@ def train(
         history["mae"].append(mae)
         history["val_mae"].append(vmae)
 
-    metrics = compute_regression_metrics(model, test_loader)
-
     val_mae = np.min(history["val_mae"])
 
     params = dict(
         context="train",
-        training_set_size=f"Training data from {train_start_forecast} to {train_stop_forecast}",
+        training_set_size=f"Training data from {train_start_forecast} to \
+            {train_stop_forecast}",
         row_count=len(train_dataset),
     )
 
@@ -311,6 +312,7 @@ def evaluate(
     test_start_forecast: str = "2021-12-13 18:00:00",
     test_stop_forecast: str = "2022-12-30 23:00:00",
     sequences: int = 1_000,
+    batch_size: int = 32,
     forecast_features: bool = True,
     stage: str = "Production",
 ) -> float:
@@ -320,11 +322,12 @@ def evaluate(
     """
     print(Fore.MAGENTA + "\n⭐️ Use case: evaluate" + Style.RESET_ALL)
 
-    # Query your BigQuery processed table and get data_processed using `get_data_with_cache`
-    query = f"""
+    # Query your BigQuery processed table and get data_processed using
+    # `get_data_with_cache`
+    query_pv = f"""
         SELECT *
         FROM {GCP_PROJECT}.{BQ_DATASET}.processed_pv
-        ORDER BY utc_time
+        ORDER BY local_time
     """
 
     data_processed_pv_cache_path = Path(LOCAL_DATA_PATH).joinpath(
@@ -332,85 +335,93 @@ def evaluate(
     )
     data_processed_pv = get_data_with_cache(
         gcp_project=GCP_PROJECT,
-        query=query,
+        query=query_pv,
         cache_path=data_processed_pv_cache_path,
         data_has_header=True,
-    )
+    ).select_dtypes(include=np.number)
 
-    # the processed PV data from bq needs to be converted to datetime object
-    data_processed_pv.local_time = pd.to_datetime(
-        data_processed_pv.local_time, utc=True
-    )
-
-    if data_processed_pv.shape[0] == 0:
-        print("❌ No data to evaluate on")
+    if data_processed_pv.shape[0] < 240:
+        print("❌ Not enough processed data retrieved to train on")
         return None
 
-    if forecast_features:
-        # --Second-- Load processed Weather Forecast data in chronological order
-        query_forecast = f"""
-            SELECT *
-            FROM {GCP_PROJECT}.{BQ_DATASET}.processed_weather_forecast
-            ORDER BY utc_time, predicition_utc_time
-        """
+    query_forecast = f"""
+        SELECT *
+        FROM {GCP_PROJECT}.{BQ_DATASET}.processed_weather_forecast
+        ORDER BY utc_time, prediction_utc_time
+    """
 
-        data_processed_forecast_cache_path = Path(LOCAL_DATA_PATH).joinpath(
-            "processed", "processed_weather_forecast.csv"
-        )
-        data_processed_forecast = get_data_with_cache(
-            gcp_project=GCP_PROJECT,
-            query=query_forecast,
-            cache_path=data_processed_forecast_cache_path,
-            data_has_header=True,
-        )
+    data_processed_forecast_cache_path = Path(LOCAL_DATA_PATH).joinpath(
+        "processed", "processed_weather_forecast.csv"
+    )
+    data_processed_forecast = get_data_with_cache(
+        gcp_project=GCP_PROJECT,
+        query=query_forecast,
+        cache_path=data_processed_forecast_cache_path,
+        data_has_header=True,
+    ).select_dtypes(include=np.number)
 
-        if data_processed_forecast.shape[0] < 240:
-            print("❌ Not enough processed data retrieved to train on")
-            return None
+    if data_processed_forecast.shape[0] < 240:
+        print("❌ Not enough processed data retrieved to train on")
+        return None
 
-        # Split the data into training and testing sets
-        test_pv = data_processed_pv[
-            (data_processed_pv["utc_time"] > test_start_forecast)
-            & (data_processed_pv["utc_time"] < test_stop_forecast)
-        ]
-        test_forecast = data_processed_forecast[
-            data_processed_forecast["utc_time"] > test_start_forecast
-        ]
+    # Split the data into training, validating and testing sets
 
-        X_test, y_test = get_X_y_seq(
-            test_pv,
-            test_forecast,
-            number_of_sequences=sequences,
-            input_length=48,
-            output_length=24,
-            gap_hours=12,
-        )
-        model = load_model(forecast_features=True, stage=stage)
-        assert model is not None
+    n_pv = len(data_processed_pv)
+    train_df_pv = data_processed_pv[0 : int(n_pv * 0.7)]
+    val_df_pv = data_processed_pv[int(n_pv * 0.7) : int(n_pv * 0.9)]
+    test_df_pv = data_processed_pv[int(n_pv * 0.9) :]
 
-        metrics_dict = evaluate_model(model=model, X=X_test, y=y_test)
-        mae = metrics_dict["mae"]
+    sequences_pv = SequenceGenerator(
+        input_width=INPUT_WIDTH,
+        label_width=LABEL_WIDTH,
+        shift=SHIFT,
+        number_sequences=10_000,
+        train_df=train_df_pv,
+        val_df=val_df_pv,
+        test_df=test_df_pv,
+        label_columns=["electricity"],
+    )
 
+    n_forecast = len(data_processed_forecast)
+    # train_df_forecast = data_processed_forecast[0 : int(n_forecast * 0.7 / 24) * 24]
+    # val_df_forecast = data_processed_forecast[
+    #     int(n_forecast * 0.7 / 24) * 24 : int(n_forecast * 0.9 / 24) * 24
+    # ]
+    test_df_forecast = data_processed_forecast[int(n_forecast * 0.9 / 24) * 24 :]
+
+    # train_dataset_forecast = SequenceForecastDataset(
+    #     df=train_df_forecast, label_columns=["electricity"]
+    # )
+    # val_dataset_forecast = SequenceForecastDataset(
+    #     df=val_df_forecast, label_columns=["electricity"]
+    # )
+    test_dataset_forecast = SequenceForecastDataset(
+        df=test_df_forecast, label_columns=["electricity"]
+    )
+
+    if DATASET == "pv":
+        # train_dataset = sequences_pv.train
+        # val_dataset = sequences_pv.val
+        test_dataset = sequences_pv.test
+        # n_features = train_dataset.tensors[0].shape[-1]
     else:
-        # Split the data into training and testing sets
-        test_pv = data_processed_pv[data_processed_pv["utc_time"] > test_start_pv]
+        # train_dataset = train_dataset_forecast
+        # val_dataset = val_dataset_forecast
+        test_dataset = test_dataset_forecast
+        # n_features = train_dataset.example[0].shape[-1]
 
-        X_test, y_test = get_X_y_seq_pv(
-            test_pv,
-            number_of_sequences=sequences,
-            input_length=48,
-            output_length=24,
-            gap_hours=12,
-        )
+    # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    # val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
-        model = load_model(stage=stage)
-        assert model is not None
-        metrics_dict = evaluate_model(model=model, X=X_test, y=y_test)
-        mae = metrics_dict["mae"]
+    model = load_model(stage=stage, forecast_features=True)
+    assert model is not None
+    metrics_dict = compute_regression_metrics(model, test_loader)
+    mae = metrics_dict["mae"]
 
     params = dict(
         context="evaluate",  # Package behavior
-        evaluate_set_size="3 years",
+        evaluate_set_size="10 %",
     )
 
     save_results(params=params, metrics=metrics_dict)
@@ -535,6 +546,6 @@ def pred(
 
 if __name__ == "__main__":
     # preprocess()
-    train()
+    # train()
     # evaluate()
-    # pred()
+    pred()
