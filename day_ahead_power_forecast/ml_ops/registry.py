@@ -7,7 +7,12 @@ import torch
 from colorama import Fore, Style
 from google.cloud import storage
 
-from day_ahead_power_forecast.params import *
+from day_ahead_power_forecast.params import (
+    BUCKET_NAME,
+    DATASET,
+    LOCAL_REGISTRY_PATH,
+    MODEL_TARGET,
+)
 
 
 def save_results(params: dict, metrics: dict, history: dict = None) -> None:
@@ -45,7 +50,7 @@ def save_results(params: dict, metrics: dict, history: dict = None) -> None:
     print("✅ Results saved locally")
 
 
-def save_model(model: torch.nn.Module = None, forecast_features: bool = False) -> None:
+def save_model(model: torch.nn.Module = None) -> None:
     """
     Persist trained model locally on the hard drive at
                 f"{LOCAL_REGISTRY_PATH}/models/{timestamp}.pt"
@@ -58,7 +63,7 @@ def save_model(model: torch.nn.Module = None, forecast_features: bool = False) -
     timestamp = time.strftime("%Y%m%d-%H%M%S")
 
     # Save model locally
-    if forecast_features:
+    if DATASET == "forecast":
         model_path = os.path.join(
             LOCAL_REGISTRY_PATH, "models", "full", f"{timestamp}.pt"
         )
@@ -78,7 +83,7 @@ def save_model(model: torch.nn.Module = None, forecast_features: bool = False) -
         ]  # e.g. "20250326-161047.pt" for instance
         client = storage.Client()
         bucket = client.bucket(BUCKET_NAME)
-        if forecast_features:
+        if DATASET == "forecast":
             blob = bucket.blob(f"models/full/{model_filename}")
         else:
             blob = bucket.blob(f"models/pv/{model_filename}")
@@ -91,7 +96,7 @@ def save_model(model: torch.nn.Module = None, forecast_features: bool = False) -
     return None
 
 
-def load_model(stage="Production", forecast_features: bool = False) -> torch.nn.Module:
+def load_model(stage="Production") -> torch.nn.Module:
     """
     Return a saved model:
     - locally (latest one in alphabetical order)
@@ -108,7 +113,7 @@ def load_model(stage="Production", forecast_features: bool = False) -> torch.nn.
         )
 
         # Get the latest model version name by the timestamp on disk
-        if forecast_features:
+        if DATASET == "forecast":
             local_model_directory = os.path.join(LOCAL_REGISTRY_PATH, "models", "full")
         else:
             local_model_directory = os.path.join(LOCAL_REGISTRY_PATH, "models", "pv")
