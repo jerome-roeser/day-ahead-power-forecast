@@ -17,6 +17,7 @@ from day_ahead_power_forecast.ml_ops.data import (
     clean_forecast_data,
     get_data_with_cache,
     load_data_to_bq,
+    query_bq_data,
 )
 from day_ahead_power_forecast.ml_ops.model import RNNModel, compute_regression_metrics
 from day_ahead_power_forecast.ml_ops.preprocessor import (
@@ -28,7 +29,16 @@ from day_ahead_power_forecast.ml_ops.registry import (
     save_model,
     save_results,
 )
-from day_ahead_power_forecast.params import *
+from day_ahead_power_forecast.params import (
+    BQ_DATASET,
+    DATASET,
+    EPOCHS,
+    GCP_PROJECT,
+    INPUT_WIDTH,
+    LABEL_WIDTH,
+    LOCAL_DATA_PATH,
+    SHIFT,
+)
 
 
 def preprocess() -> None:
@@ -124,7 +134,6 @@ def train(
     learning_rate: float = 0.02,
     batch_size: int = 32,
     patience: int = 5,
-    forecast_features: bool = False,
 ) -> float:
     """
     - Download processed data from your BQ table (or from cache if it exists)
@@ -299,7 +308,7 @@ def train(
     save_results(params=params, metrics=dict(mae=val_mae), history=history)
 
     # Save model weight on the hard drive (and optionally on GCS too!)
-    save_model(model=model, forecast_features=True)
+    save_model(model=model)
 
     print("✅ train() done \n")
 
@@ -313,7 +322,6 @@ def evaluate(
     test_stop_forecast: str = "2022-12-30 23:00:00",
     sequences: int = 1_000,
     batch_size: int = 32,
-    forecast_features: bool = True,
     stage: str = "Production",
 ) -> float:
     """
@@ -414,7 +422,7 @@ def evaluate(
     # val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
-    model = load_model(stage=stage, forecast_features=True)
+    model = load_model(stage=stage)
     assert model is not None
     metrics_dict = compute_regression_metrics(model, test_loader)
     mae = metrics_dict["mae"]
@@ -431,103 +439,71 @@ def evaluate(
     return mae
 
 
-def pred(
-    input_pred: str = "2022-07-06 12:00:00", forecast_features: bool = False
-) -> pd.DataFrame:
+def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
     """
     Make a prediction using the latest trained model
     """
+    # Compute the necessary datetime objects for the BQ querying
+    dt_day_ahead_begin = pd.to_datetime(input_pred, utc=True)
+    # dt_day_ahead_end = dt_day_ahead_begin + np.timedelta64(23, "h")
+
+    dt_pv_data_begin = dt_day_ahead_begin - np.timedelta64(2, "D")
+    # dt_pv_data_end = dt_day_ahead_end - np.timedelta64(2, "D")
+
+    dt_noon_weather_forecast = dt_day_ahead_begin - np.timedelta64(12, "h")
 
     print(Fore.MAGENTA + "\n⭐️ Use case: predict" + Style.RESET_ALL)
 
-    query = f"""
+    # Query raw PV data from BUCKET BigQuery using `get_data_with_cache`
+    query_pv = f"""
         SELECT *
-        FROM {GCP_PROJECT}.{BQ_DATASET}.processed_pv
-        ORDER BY utc_time
+        FROM {GCP_PROJECT}.{BQ_DATASET}.raw_pv
+        WHERE _0 BETWEEN {int(dt_pv_data_begin.timestamp()) * 1000}
+                    AND {int(dt_noon_weather_forecast.timestamp()) * 1000}
+        ORDER BY _0
     """
 
-    data_processed_pv_cache_path = Path(LOCAL_DATA_PATH).joinpath(
-        "processed", "processed_pv.csv"
+    # Retrieve data from BigQuery
+    data_pv_query = query_bq_data(query=query_pv, gcp_project=GCP_PROJECT)
+    data_pv_query["local_time"] = pd.to_datetime(data_pv_query["local_time"], utc=True)
+
+    # Clean data for the first 24h only
+    # timestamp_pv_data_end = int(dt_pv_data_end.timestamp()) * 1000
+    data_pv_processed = preprocess_PV_features(
+        data_pv_query.query("_0 <= @timestamp_pv_data_end")
     )
-    data_processed_pv = get_data_with_cache(
-        gcp_project=GCP_PROJECT,
-        query=query,
-        cache_path=data_processed_pv_cache_path,
-        data_has_header=True,
-    )
 
-    # X_pred should be the 48 hours before the input date
-    X_pred_pv = data_processed_pv[data_processed_pv["utc_time"] < input_pred][-48:]
+    # Query raw historical weather forecast data from BigQuery
+    query_forecast = f"""
+        SELECT *
+        FROM {GCP_PROJECT}.{BQ_DATASET}.raw_weather_forecast
+        WHERE forecast_dt_unixtime = {int(dt_noon_weather_forecast.timestamp())}
+        ORDER BY forecast_dt_unixtime, slice_dt_unixtime
+    """
+    # AND slice_dt_unixtime BETWEEN {int(dt_day_ahead_begin.timestamp())}
+    #             AND {int(dt_day_ahead_end.timestamp())}
 
-    if forecast_features:
-        # --Second-- Load processed Weather Forecast data in chronological order
-        query_forecast = f"""
-            SELECT *
-            FROM {GCP_PROJECT}.{BQ_DATASET}.processed_weather_forecast
-            ORDER BY utc_time, predicition_utc_time
-        """
+    data_forecast_query = query_bq_data(query=query_forecast, gcp_project=GCP_PROJECT)
 
-        data_processed_forecast_cache_path = Path(LOCAL_DATA_PATH).joinpath(
-            "processed", "processed_weather_forecast.csv"
-        )
-        data_processed_forecast = get_data_with_cache(
-            gcp_project=GCP_PROJECT,
-            query=query_forecast,
-            cache_path=data_processed_forecast_cache_path,
-            data_has_header=True,
-        )
+    # Clean data
+    data_forecast_clean = clean_forecast_data(data_forecast_query)
+    data_forecast_processed = preprocess_forecast_features(data_forecast_clean)
 
-        if data_processed_forecast.shape[0] < 240:
-            print("❌ Not enough processed data retrieved to train on")
-            return None
-
-        input_date = input_pred.split()[0]
-        X_pred_forecast = get_weather_forecast_features(
-            data_processed_forecast, input_date
-        )
-
-        X_pred_pv = X_pred_pv.reset_index()
-        to_concat = [X_pred_pv.iloc[:, 2:], X_pred_forecast.iloc[:, 2:]]
-
-        X_pred = pd.concat(to_concat, axis=1)
-        feature_indices = {name: i for i, name in enumerate(X_pred)}
-        X_pred = X_pred.to_numpy()
-        X_pred_tf = tf.convert_to_tensor(X_pred)
-        X_pred_tf = tf.expand_dims(X_pred_tf, axis=0)
-
-        model = load_model(forecast_features=True)
-        assert model is not None
-
+    if DATASET == "pv":
+        X = data_pv_processed.select_dtypes(include=np.number)
     else:
-        # convert X_pred to a tensorflow object
-        X_pred = X_pred_pv.iloc[:, 1:]
-        feature_indices = {name: i for i, name in enumerate(X_pred)}
-        X_pred = X_pred.to_numpy()
-        X_pred_tf = tf.convert_to_tensor(X_pred)
-        X_pred_tf = tf.expand_dims(X_pred_tf, axis=0)
+        X = data_forecast_processed.select_dtypes(include=np.number)
 
-        model = load_model()
-        assert model is not None
+    X = np.expand_dims(X.values, axis=0)
+    X_tensor = torch.tensor(X, dtype=torch.float32)
 
-    print(
-        Fore.BLUE
-        + f"\nPredict with {feature_indices} X_pred tensors \
-        \n -> forecast features: {forecast_features}"
-        + Style.RESET_ALL
-    )
-    y_pred = model.predict(X_pred_tf)
+    model = load_model()
+    assert model is not None
 
-    # y_pred dates shoud be the 24hours after a 12 hour gap
-    y_pred_df = data_processed_pv[data_processed_pv["utc_time"] > input_pred][12:36]
+    y_pred = model.forward(X_tensor)
 
-    y_pred_df["pred"] = y_pred[0]
-
-    # y_pred_df should have only two columns: 'utc_time', 'pred'; utc_time
-    # should be datetime object
-
-    y_pred_df = y_pred_df[["utc_time", "pred"]]
-    y_pred_df.reset_index(drop=True, inplace=True)
-    y_pred_df.local_time = pd.to_datetime(y_pred_df.local_time, utc=True)
+    y_pred_df = pd.DataFrame(y_pred.detach().numpy()[0], columns=["pred"])
+    y_pred_df["utc_time"] = data_forecast_clean["prediction_utc_time"]
 
     # Cut-off predictions that are negative or bigger than max capacity
     def cutoff_func(x):
