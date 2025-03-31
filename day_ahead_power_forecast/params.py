@@ -19,6 +19,10 @@ GCP_REGION = os.environ.get("GCP_REGION")
 BQ_DATASET = os.environ.get("BQ_DATASET")
 BQ_REGION = os.environ.get("BQ_REGION")
 BUCKET_NAME = os.environ.get("BUCKET_NAME")
+MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI")
+MLFLOW_EXPERIMENT = os.environ.get("MLFLOW_EXPERIMENT")
+MLFLOW_MODEL_NAME = os.environ.get("MLFLOW_MODEL_NAME")
+
 #
 GAR_IMAGE = os.environ.get("GAR_IMAGE")
 GAR_MEMORY = os.environ.get("GAR_MEMORY")
