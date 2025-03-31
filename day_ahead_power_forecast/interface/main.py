@@ -26,6 +26,7 @@ from day_ahead_power_forecast.ml_ops.preprocessor import (
 )
 from day_ahead_power_forecast.ml_ops.registry import (
     load_model,
+    mlflow_transition_model,
     save_model,
     save_results,
 )
@@ -37,6 +38,7 @@ from day_ahead_power_forecast.params import (
     INPUT_WIDTH,
     LABEL_WIDTH,
     LOCAL_DATA_PATH,
+    MODEL_TARGET,
     SHIFT,
 )
 
@@ -309,6 +311,8 @@ def train(
 
     # Save model weight on the hard drive (and optionally on GCS too!)
     save_model(model=model)
+    if MODEL_TARGET == "mlflow":
+        mlflow_transition_model(current_stage="dev", new_stage="staging")
 
     print("✅ train() done \n")
 
@@ -322,7 +326,7 @@ def evaluate(
     test_stop_forecast: str = "2022-12-30 23:00:00",
     sequences: int = 1_000,
     batch_size: int = 32,
-    stage: str = "Production",
+    stage: str = "production",
 ) -> float:
     """
     Evaluate the performance of the latest production model on processed data
@@ -330,6 +334,8 @@ def evaluate(
     """
     print(Fore.MAGENTA + "\n⭐️ Use case: evaluate" + Style.RESET_ALL)
 
+    model = load_model(stage=stage)
+    assert model is not None
     # Query your BigQuery processed table and get data_processed using
     # `get_data_with_cache`
     query_pv = f"""
@@ -422,8 +428,6 @@ def evaluate(
     # val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
-    model = load_model(stage=stage)
-    assert model is not None
     metrics_dict = compute_regression_metrics(model, test_loader)
     mae = metrics_dict["mae"]
 
@@ -443,12 +447,16 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
     """
     Make a prediction using the latest trained model
     """
+
+    model = load_model()
+    assert model is not None
+
     # Compute the necessary datetime objects for the BQ querying
     dt_day_ahead_begin = pd.to_datetime(input_pred, utc=True)
-    # dt_day_ahead_end = dt_day_ahead_begin + np.timedelta64(23, "h")
+    dt_day_ahead_end = dt_day_ahead_begin + np.timedelta64(23, "h")
 
     dt_pv_data_begin = dt_day_ahead_begin - np.timedelta64(2, "D")
-    # dt_pv_data_end = dt_day_ahead_end - np.timedelta64(2, "D")
+    dt_pv_data_end = dt_day_ahead_end - np.timedelta64(2, "D")
 
     dt_noon_weather_forecast = dt_day_ahead_begin - np.timedelta64(12, "h")
 
@@ -468,7 +476,7 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
     data_pv_query["local_time"] = pd.to_datetime(data_pv_query["local_time"], utc=True)
 
     # Clean data for the first 24h only
-    # timestamp_pv_data_end = int(dt_pv_data_end.timestamp()) * 1000
+    timestamp_pv_data_end = int(dt_pv_data_end.timestamp()) * 1000
     data_pv_processed = preprocess_PV_features(
         data_pv_query.query("_0 <= @timestamp_pv_data_end")
     )
@@ -497,9 +505,7 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
     X = np.expand_dims(X.values, axis=0)
     X_tensor = torch.tensor(X, dtype=torch.float32)
 
-    model = load_model()
-    assert model is not None
-
+    model.eval()
     y_pred = model.forward(X_tensor)
 
     y_pred_df = pd.DataFrame(y_pred.detach().numpy()[0], columns=["pred"])
@@ -523,5 +529,5 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
 if __name__ == "__main__":
     # preprocess()
     # train()
-    # evaluate()
-    pred()
+    evaluate()
+    # pred()

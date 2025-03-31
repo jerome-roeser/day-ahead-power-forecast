@@ -3,14 +3,19 @@ import os
 import pickle
 import time
 
+import mlflow
 import torch
 from colorama import Fore, Style
 from google.cloud import storage
+from mlflow import MlflowClient, MlflowException
 
 from day_ahead_power_forecast.params import (
     BUCKET_NAME,
     DATASET,
     LOCAL_REGISTRY_PATH,
+    MLFLOW_EXPERIMENT,
+    MLFLOW_MODEL_NAME,
+    MLFLOW_TRACKING_URI,
     MODEL_TARGET,
 )
 
@@ -22,6 +27,15 @@ def save_results(params: dict, metrics: dict, history: dict = None) -> None:
     "{LOCAL_REGISTRY_PATH}/metrics/{current_timestamp}.pickle"
     - (unit 03 only) if MODEL_TARGET='mlflow', also persist them on MLflow
     """
+
+    if MODEL_TARGET == "mlflow":
+        mlflow.set_experiment(experiment_name=MLFLOW_EXPERIMENT)
+
+        if params is not None:
+            mlflow.log_params(params)
+        if metrics is not None:
+            mlflow.log_metrics(metrics)
+        print("✅ Results saved on MLflow")
 
     timestamp = time.strftime("%Y%m%d-%H%M%S")
 
@@ -78,9 +92,7 @@ def save_model(model: torch.nn.Module = None) -> None:
     if MODEL_TARGET == "gcs":
         print(Fore.BLUE + f"\nSave model to GCS @ {BUCKET_NAME}..." + Style.RESET_ALL)
 
-        model_filename = model_path.split("/")[
-            -1
-        ]  # e.g. "20250326-161047.pt" for instance
+        model_filename = model_path.split("/")[-1]  # e.g. "20250326-161047.pt"
         client = storage.Client()
         bucket = client.bucket(BUCKET_NAME)
         if DATASET == "forecast":
@@ -93,10 +105,25 @@ def save_model(model: torch.nn.Module = None) -> None:
 
         return None
 
+    elif MODEL_TARGET == "mlflow":
+        print(Fore.BLUE + "\nSave model to mlflow ..." + Style.RESET_ALL)
+
+        mlflow.set_experiment(experiment_name=MLFLOW_EXPERIMENT)
+
+        mlflow.pytorch.log_model(
+            pytorch_model=model,
+            artifact_path="model",
+            registered_model_name=f"dev.ml_team.{MLFLOW_MODEL_NAME}",
+        )
+
+        print("✅ Model saved to MLflow")
+
+        return None
+
     return None
 
 
-def load_model(stage="Production") -> torch.nn.Module:
+def load_model(stage="production") -> torch.nn.Module:
     """
     Return a saved model:
     - locally (latest one in alphabetical order)
@@ -148,7 +175,7 @@ def load_model(stage="Production") -> torch.nn.Module:
 
             latest_model = torch.load(latest_model_path_to_save, weights_only=False)
 
-            print("✅ Latest model downloaded from cloud storage")
+            print(f"✅ Latest model downloaded from cloud storage ({latest_blob.name})")
 
             return latest_model
         except Exception as e:
@@ -157,5 +184,99 @@ def load_model(stage="Production") -> torch.nn.Module:
 
             return None
 
+    elif MODEL_TARGET == "mlflow":
+        print(Fore.BLUE + "\nLoad latest model from mlflow ..." + Style.RESET_ALL)
+
+        environments = ["dev", "staging", "production", "archived"]
+        try:
+            assert stage in environments
+        except AssertionError:
+            print(f"Please choose valid model environments from {environments}")
+            return None
+
+        client = MlflowClient()
+        registered_model_name = f"{stage}.ml_team.{MLFLOW_MODEL_NAME}"
+
+        try:
+            latest_registered_model = client.get_registered_model(
+                registered_model_name
+            ).latest_versions[0]
+        except MlflowException:
+            print(
+                f"\n❌ No model found with name {registered_model_name} \
+                    in stage {stage}"
+            )
+            return None
+
+        logged_model = f"models:/{registered_model_name}\
+                /{latest_registered_model.version}"
+        latest_model = mlflow.pytorch.load_model(logged_model)
+
+        print(f"✅ Latest model downloaded from mlflow ({logged_model})")
+        return latest_model
+
     else:
         return None
+
+
+def mlflow_transition_model(current_stage: str, new_stage: str) -> None:
+    """
+    Transition the latest model from the `current_stage` to the
+    `new_stage` and archive the existing model in `new_stage`
+    """
+
+    environments = ["dev", "staging", "production", "archived"]
+    try:
+        assert current_stage and new_stage in environments
+    except AssertionError:
+        print(f"Please choose valid model environments from {environments}")
+        return None
+
+    client = MlflowClient()
+    src_name = f"{current_stage}.ml_team.{MLFLOW_MODEL_NAME}"
+
+    # Copy the source model version into a new registered model
+    mv_src = client.get_registered_model(src_name).latest_versions[0]
+    dst_name = f"{new_stage}.ml_team.{MLFLOW_MODEL_NAME}"
+    src_model_uri = f"models:/{mv_src.name}/{mv_src.version}"
+    client.copy_model_version(src_model_uri, dst_name)
+
+    print(
+        f"✅ Model {MLFLOW_MODEL_NAME} (version {mv_src.version}) \
+            transitioned from {current_stage} to {new_stage}"
+    )
+
+    return None
+
+
+##### Wrapper with autolog works only with pytorch Lightning ####################
+
+
+def mlflow_run(func, params: dict = None, context: str = None):
+    """
+    Generic function to log params and results to MLflow along with
+    Pytorch auto-logging
+
+    Args:
+        - func (function): Function you want to run within the MLflow run
+        - params (dict, optional): Params to add to the run in MLflow.
+          Defaults to None.
+        - context (str, optional): Param describing the context of the run.
+          Defaults to "Train".
+    """
+
+    def wrapper(*args, **kwargs):
+        mlflow.end_run()
+        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+        mlflow.set_experiment(experiment_name=MLFLOW_EXPERIMENT)
+
+        with mlflow.start_run() as run:
+            mlflow.pytorch.autolog()
+            results = func(*args, **kwargs)
+            print(run.info)
+
+        print("✅ mlflow_run auto-log done")
+
+        return results
+
+    return wrapper
