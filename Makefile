@@ -2,6 +2,9 @@
 run_main:
 	@python -m day_ahead_power_forecast.interface.main
 
+workflow:
+	PREFECT__LOGGING__LEVEL=${PREFECT_LOG_LEVEL} python -m day_ahead_power_forecast.interface.workflow
+
 streamlit:
 	@streamlit run ui/app.py
 

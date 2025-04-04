@@ -20,4 +20,4 @@ select = [
     "F",  # pyflakes
     "I",  # isort
 ]
-ignore = ["F841"]  # assigned but never used
+ignore = ["F841", "E501"]  # assigned but never used

@@ -208,8 +208,9 @@ def load_model(stage="production") -> torch.nn.Module:
             )
             return None
 
-        logged_model = f"models:/{registered_model_name}\
-                /{latest_registered_model.version}"
+        logged_model = (
+            f"models:/{registered_model_name}/{latest_registered_model.version}"
+        )
         latest_model = mlflow.pytorch.load_model(logged_model)
 
         print(f"✅ Latest model downloaded from mlflow ({logged_model})")
