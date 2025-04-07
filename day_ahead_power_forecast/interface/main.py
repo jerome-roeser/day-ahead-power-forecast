@@ -133,7 +133,7 @@ def train(
     train_start_forecast: str = "2017-10-07 00:00:00",
     train_stop_forecast: str = "2021-12-13 18:00:00",
     sequences: int = 10_000,
-    learning_rate: float = 0.02,
+    learning_rate: float = 1e-3,
     batch_size: int = 32,
     patience: int = 5,
 ) -> float:
@@ -285,6 +285,7 @@ def train(
                     print(f"\tval loss: {vloss:>7f}  [{vcurrent:>5d}/{vsize:>5d}]")
 
             model.train(True)
+
         return loss, vloss, mae, vmae
 
     history = defaultdict(list)
@@ -297,26 +298,36 @@ def train(
         history["mae"].append(mae)
         history["val_mae"].append(vmae)
 
-    val_mae = np.min(history["val_mae"])
+    index_min_mae = np.argmin(history["val_mae"])
+    train_metrics = {
+        "loss": history["loss"][index_min_mae].detach(),
+        "val_loss": history["val_loss"][index_min_mae],
+        "mae": history["mae"][index_min_mae].detach(),
+        "val_mae": history["val_mae"][index_min_mae],
+    }
 
-    params = dict(
-        context="train",
-        training_set_size=f"Training data from {train_start_forecast} to \
-            {train_stop_forecast}",
-        row_count=len(train_dataset),
-    )
+    params = {
+        "context": "train",
+        "training_period": "",
+        "epochs": EPOCHS,
+        "learning_rate": learning_rate,
+        "batch_size": batch_size,
+        "loss_function": loss_fn.__class__.__name__,
+        "metric_function": "MeanAbsoluteError",
+        "optimizer": optim.__class__.__name__,
+    }
 
-    # Save results on the hard drive using taxifare.ml_logic.registry
-    save_results(params=params, metrics=dict(mae=val_mae), history=history)
+    # Save training results and model summary
+    save_results(params=params, metrics=train_metrics, history=history)
 
-    # Save model weight on the hard drive (and optionally on GCS too!)
+    # Save model weights & summary
     save_model(model=model)
     if MODEL_TARGET == "mlflow":
         mlflow_transition_model(current_stage="dev", new_stage="staging")
 
     print("✅ train() done \n")
 
-    return val_mae
+    return train_metrics["val_mae"]
 
 
 def evaluate(
@@ -512,22 +523,21 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
     y_pred_df["utc_time"] = data_forecast_clean["prediction_utc_time"]
 
     # Cut-off predictions that are negative or bigger than max capacity
-    def cutoff_func(x):
-        if x < 0.0:
-            return 0
-        if x > 0.9:
-            return 0.9
-        return x
+    def cutoff_func(x: float, max_capacity: float = 0.9) -> float:
+        """
+        Cut off the prediction to be between 0 and max_capacity
+        """
+        return np.minimum(x, max_capacity) * (x > 0)
 
-    y_pred_df.pred = y_pred_df.pred.apply(cutoff_func)
+    y_pred_df["pred"] = y_pred_df["pred"].apply(cutoff_func)
 
-    print("\n✅ prediction done: ", y_pred, y_pred.shape, "\n")
+    print("\n✅ prediction done: ", y_pred_df, y_pred_df.shape, "\n")
 
     return y_pred_df
 
 
 if __name__ == "__main__":
     # preprocess()
-    # train()
-    evaluate()
+    train()
+    # evaluate()
     # pred()

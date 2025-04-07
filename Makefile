@@ -81,6 +81,7 @@ reset_local_files:
 	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/models/full
 	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/params
 	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/histories
+	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/summaries
 
 reset_bq_files:
 	-bq rm --project_id ${GCP_PROJECT} ${BQ_DATASET}.processed_pv
