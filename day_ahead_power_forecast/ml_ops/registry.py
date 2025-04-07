@@ -8,6 +8,7 @@ import torch
 from colorama import Fore, Style
 from google.cloud import storage
 from mlflow import MlflowClient, MlflowException
+from torchinfo import summary
 
 from day_ahead_power_forecast.params import (
     BUCKET_NAME,
@@ -20,7 +21,11 @@ from day_ahead_power_forecast.params import (
 )
 
 
-def save_results(params: dict, metrics: dict, history: dict = None) -> None:
+def save_results(
+    params: dict,
+    metrics: dict,
+    history: dict = None,
+) -> None:
     """
     Persist params & metrics locally on the hard drive at
     "{LOCAL_REGISTRY_PATH}/params/{current_timestamp}.pickle"
@@ -35,6 +40,7 @@ def save_results(params: dict, metrics: dict, history: dict = None) -> None:
             mlflow.log_params(params)
         if metrics is not None:
             mlflow.log_metrics(metrics)
+
         print("✅ Results saved on MLflow")
 
     timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -109,6 +115,14 @@ def save_model(model: torch.nn.Module = None) -> None:
         print(Fore.BLUE + "\nSave model to mlflow ..." + Style.RESET_ALL)
 
         mlflow.set_experiment(experiment_name=MLFLOW_EXPERIMENT)
+
+        summary_path = os.path.join(
+            LOCAL_REGISTRY_PATH, "summaries", timestamp + ".txt"
+        )
+
+        with open(summary_path, "w") as f:
+            f.write(str(summary(model)))
+        mlflow.log_artifact(summary_path)
 
         mlflow.pytorch.log_model(
             pytorch_model=model,
