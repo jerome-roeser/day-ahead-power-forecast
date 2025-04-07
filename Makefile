@@ -78,7 +78,7 @@ reset_local_files:
 	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/metrics
 	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/models
 	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/models/pv
-	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/models/full
+	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/models/forecast
 	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/params
 	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/histories
 	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/summaries
