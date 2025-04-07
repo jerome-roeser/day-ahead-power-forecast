@@ -1,19 +1,23 @@
-import smtplib
+import base64
 from datetime import datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+from email.message import EmailMessage
+from pathlib import Path
 
-import requests
 from dateutil.relativedelta import relativedelta
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from prefect import flow, task
 
 from day_ahead_power_forecast.interface.main import evaluate, preprocess, train
 from day_ahead_power_forecast.ml_ops.registry import mlflow_transition_model
 from day_ahead_power_forecast.params import (
     EVALUATION_START_DATE_PV,
+    GOOGLE_OAUTH_CREDENTIALS,
     PREFECT_FLOW_NAME,
     SENDER_EMAIL,
-    SENDER_PASSWORD,
 )
 
 
@@ -38,39 +42,38 @@ def transition_model(current_stage: str, new_stage: str):
 
 
 @task
-def notify(old_mae, new_mae):
-    """
-    Notify about the performance
-    """
-    base_url = "https://wagon-chat.herokuapp.com"
-    channel = "802"
-    url = f"{base_url}/{channel}/messages"
-    author = "krokrob"
-
-    if new_mae < old_mae and new_mae < 2.5:
-        content = f"🚀 New model replacing old in production with MAE: {new_mae} the Old MAE was: {old_mae}"
-    elif old_mae < 2.5:
-        content = (
-            f"✅ Old model still good enough: Old MAE: {old_mae} - New MAE: {new_mae}"
-        )
-    else:
-        content = f"🚨 No model good enough: Old MAE: {old_mae} - New MAE: {new_mae}"
-
-    data = dict(author=author, content=content)
-
-    response = requests.post(url, data=data)
-    response.raise_for_status()
-
-
-@task
 def notify_via_email(old_mae, new_mae, recipient_email):
     """
     Notify about the performance via e-mail
+
+    Create and send an email message
+    Print the returned  message id
+    Returns: Message object, including message id
+
+    Load pre-authorized user credentials from the environment.
+    TODO(developer) - See https://developers.google.com/identity
+    for guides on implementing OAuth2 for the application.
     """
-    sender_email = SENDER_EMAIL  # Replace with your email
-    sender_password = SENDER_PASSWORD  # Replace with your email password
-    smtp_server = "smtp.gmail.com"  # Replace with your SMTP server
-    smtp_port = 587  # Replace with your SMTP port (e.g., 587 for TLS)
+
+    SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+    creds = None
+    # The file token.json stores the user's access and refresh tokens, and is
+    # created automatically when the authorization flow completes for the first
+    # time.
+    if Path("token.json").exists():
+        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+    # If there are no (valid) credentials available, let the user log in.
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                GOOGLE_OAUTH_CREDENTIALS, SCOPES
+            )
+            creds = flow.run_local_server(port=0)
+        # Save the credentials for the next run
+        with open("token.json", "w") as token:
+            token.write(creds.to_json())
 
     if new_mae < old_mae and new_mae < 2.5:
         subject = "🚀 New Model Deployed to Production"
@@ -82,22 +85,45 @@ def notify_via_email(old_mae, new_mae, recipient_email):
         subject = "🚨 No Model Good Enough"
         body = f"No model good enough: Old MAE: {old_mae}, New MAE: {new_mae}."
 
-    # Create the email
-    msg = MIMEMultipart()
-    msg["From"] = sender_email
-    msg["To"] = recipient_email
-    msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
-
     # Send the email
     try:
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, recipient_email, msg.as_string())
-        print("Email notification sent successfully.")
-    except Exception as e:
-        print(f"Failed to send email notification: {e}")
+        # Call the Gmail API
+        service = build("gmail", "v1", credentials=creds)
+        message = EmailMessage()
+
+        # headers
+        message["To"] = recipient_email
+        message["From"] = SENDER_EMAIL
+        message["Subject"] = subject
+
+        # text
+        message.set_content(body)
+
+        # # attachment
+        # attachment_filename = "day_ahead_power_forecast/images/screenshot-1.png"
+        # # guessing the MIME type
+        # type_subtype, _ = mimetypes.guess_type(attachment_filename)
+        # maintype, subtype = type_subtype.split("/")
+
+        # with open(attachment_filename, "rb") as fp:
+        #     attachment_data = fp.read()
+        # message.add_attachment(attachment_data, maintype, subtype)
+
+        # encoded message
+        encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+
+        create_message = {"raw": encoded_message}
+        # pylint: disable=E1101
+        send_message = (
+            service.users().messages().send(userId="me", body=create_message).execute()
+        )
+
+        print(f"Message Id: {send_message['id']}")
+        return send_message
+
+    except HttpError as error:
+        # TODO(developer) - Handle errors from gmail API.
+        print(f"An error occurred: {error}")
 
 
 @flow(name=PREFECT_FLOW_NAME)

@@ -3,6 +3,7 @@ day_ahead_power_forecast/raw_data
 notebooks/data/
 *.local_data/
 mlruns/
+token.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

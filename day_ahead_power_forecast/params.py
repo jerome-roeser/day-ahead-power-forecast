@@ -6,7 +6,6 @@ EVALUATION_START_DATE_WEATHER_FORECAST = os.environ.get(
 )
 
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
-SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
 
 ################## MODEL PARAMETERS ##################
 EPOCHS = 3
@@ -32,6 +31,7 @@ MLFLOW_EXPERIMENT = os.environ.get("MLFLOW_EXPERIMENT")
 MLFLOW_MODEL_NAME = os.environ.get("MLFLOW_MODEL_NAME")
 PREFECT_FLOW_NAME = os.environ.get("PREFECT_FLOW_NAME")
 PREFECT_LOG_LEVEL = os.environ.get("PREFECT_LOG_LEVEL")
+GOOGLE_OAUTH_CREDENTIALS = os.environ.get("GOOGLE_OAUTH_CREDENTIALS")
 #
 GAR_IMAGE = os.environ.get("GAR_IMAGE")
 GAR_MEMORY = os.environ.get("GAR_MEMORY")
