@@ -512,22 +512,21 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
     y_pred_df["utc_time"] = data_forecast_clean["prediction_utc_time"]
 
     # Cut-off predictions that are negative or bigger than max capacity
-    def cutoff_func(x):
-        if x < 0.0:
-            return 0
-        if x > 0.9:
-            return 0.9
-        return x
+    def cutoff_func(x: float, max_capacity: float = 0.9) -> float:
+        """
+        Cut off the prediction to be between 0 and max_capacity
+        """
+        return np.minimum(x, max_capacity) * (x > 0)
 
-    y_pred_df.pred = y_pred_df.pred.apply(cutoff_func)
+    y_pred_df["pred"] = y_pred_df["pred"].apply(cutoff_func)
 
-    print("\n✅ prediction done: ", y_pred, y_pred.shape, "\n")
+    print("\n✅ prediction done: ", y_pred_df, y_pred_df.shape, "\n")
 
     return y_pred_df
 
 
 if __name__ == "__main__":
-    # preprocess()
-    # train()
+    preprocess()
+    train()
     evaluate()
-    # pred()
+    pred()
