@@ -83,14 +83,8 @@ def save_model(model: torch.nn.Module = None) -> None:
     timestamp = time.strftime("%Y%m%d-%H%M%S")
 
     # Save model locally
-    if DATASET == "forecast":
-        model_path = os.path.join(
-            LOCAL_REGISTRY_PATH, "models", "full", f"{timestamp}.pt"
-        )
-    else:
-        model_path = os.path.join(
-            LOCAL_REGISTRY_PATH, "models", "pv", f"{timestamp}.pt"
-        )
+
+    model_path = os.path.join(LOCAL_REGISTRY_PATH, "models", DATASET, f"{timestamp}.pt")
     torch.save(model, model_path)
 
     print("✅ Model saved locally")
@@ -101,10 +95,7 @@ def save_model(model: torch.nn.Module = None) -> None:
         model_filename = model_path.split("/")[-1]  # e.g. "20250326-161047.pt"
         client = storage.Client()
         bucket = client.bucket(BUCKET_NAME)
-        if DATASET == "forecast":
-            blob = bucket.blob(f"models/full/{model_filename}")
-        else:
-            blob = bucket.blob(f"models/pv/{model_filename}")
+        blob = bucket.blob(f"models/{DATASET}/{model_filename}")
         blob.upload_from_filename(model_path)
 
         print("✅ Model saved to GCS")
@@ -127,7 +118,7 @@ def save_model(model: torch.nn.Module = None) -> None:
         mlflow.pytorch.log_model(
             pytorch_model=model,
             artifact_path="model",
-            registered_model_name=f"dev.ml_team.{MLFLOW_MODEL_NAME}",
+            registered_model_name=f"dev.ml_team.{DATASET}.{MLFLOW_MODEL_NAME}",
         )
 
         print("✅ Model saved to MLflow")
@@ -145,7 +136,6 @@ def load_model(stage="production") -> torch.nn.Module:
     - or from MLFLOW (by "stage") if MODEL_TARGET=='mlflow' --> for unit 03 only
 
     Return None (but do not Raise) if no model is found
-
     """
 
     if MODEL_TARGET == "local":
@@ -154,11 +144,7 @@ def load_model(stage="production") -> torch.nn.Module:
         )
 
         # Get the latest model version name by the timestamp on disk
-        if DATASET == "forecast":
-            local_model_directory = os.path.join(LOCAL_REGISTRY_PATH, "models", "full")
-        else:
-            local_model_directory = os.path.join(LOCAL_REGISTRY_PATH, "models", "pv")
-
+        local_model_directory = os.path.join(LOCAL_REGISTRY_PATH, "models", DATASET)
         local_model_paths = glob.glob(f"{local_model_directory}/*")
 
         if not local_model_paths:
@@ -209,7 +195,7 @@ def load_model(stage="production") -> torch.nn.Module:
             return None
 
         client = MlflowClient()
-        registered_model_name = f"{stage}.ml_team.{MLFLOW_MODEL_NAME}"
+        registered_model_name = f"{stage}.ml_team.{DATASET}.{MLFLOW_MODEL_NAME}"
 
         try:
             latest_registered_model = client.get_registered_model(
@@ -252,7 +238,7 @@ def mlflow_transition_model(current_stage: str, new_stage: str) -> None:
 
     # Copy the source model version into a new registered model
     mv_src = client.get_registered_model(src_name).latest_versions[0]
-    dst_name = f"{new_stage}.ml_team.{MLFLOW_MODEL_NAME}"
+    dst_name = f"{new_stage}.ml_team.{DATASET}.{MLFLOW_MODEL_NAME}"
     src_model_uri = f"models:/{mv_src.name}/{mv_src.version}"
     client.copy_model_version(src_model_uri, dst_name)
 
@@ -265,8 +251,6 @@ def mlflow_transition_model(current_stage: str, new_stage: str) -> None:
 
 
 ##### Wrapper with autolog works only with pytorch Lightning ####################
-
-
 def mlflow_run(func, params: dict = None, context: str = None):
     """
     Generic function to log params and results to MLflow along with
