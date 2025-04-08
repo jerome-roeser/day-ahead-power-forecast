@@ -212,8 +212,8 @@ def get_pv_data() -> pd.DataFrame:
     issues with BigQuery
     """
 
-    csv_path = Path(__file__).parent.parent.joinpath("raw_data")
-    df = pd.read_csv(csv_path.joinpath("1980-2022_pv.csv"))
+    csv_path = Path(__file__).parent.parent.parent.joinpath("data")
+    df = pd.read_csv(csv_path.joinpath("1980-2022_pv.csv"), memory_map=True)
 
     df.rename(
         columns={
@@ -245,10 +245,11 @@ def get_forecast_data() -> pd.DataFrame:
     Load raw data from local directory and rename columns to prevent
     issues with BigQuery
     """
-    csv_path = Path(__file__).parent.parent.joinpath("raw_data")
+    csv_path = Path(__file__).parent.parent.parent.joinpath("data")
 
     df = pd.read_csv(
-        csv_path.joinpath("openweather_history_bulk_forecast_tempelhof.csv")
+        csv_path.joinpath("openweather_history_bulk_forecast_tempelhof.csv"),
+        memory_map=True,
     )
     df.columns = ["_".join(col.split()) for col in df.columns]
 

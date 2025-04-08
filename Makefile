@@ -68,6 +68,21 @@ show_sources_all:
 	-bq show ${BQ_DATASET}.processed_wind
 	-gsutil ls gs://${BUCKET_NAME}
 
+clear_cache:
+	rm -rf ${ML_DIR}/data/*
+	mkdir day_ahead_power_forecast/.local_data/mlops/data/raw
+	mkdir day_ahead_power_forecast/.local_data/mlops/data/processed
+
+clear_training_outputs:
+	rm -rf ${ML_DIR}/training_outputs/*
+	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/metrics
+	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/models
+	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/models/pv
+	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/models/forecast
+	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/params
+	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/histories
+	mkdir day_ahead_power_forecast/.local_data/mlops/training_outputs/summaries
+
 reset_local_files:
 	rm -rf ${ML_DIR}
 	mkdir -p day_ahead_power_forecast/.local_data/mlops/data/
