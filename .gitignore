@@ -1,6 +1,5 @@
 # private /and heavy) data files
-day_ahead_power_forecast/raw_data
-notebooks/data/
+data/
 *.local_data/
 mlruns/
 token.json

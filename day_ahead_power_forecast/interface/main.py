@@ -487,10 +487,10 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
     dt_day_ahead_begin = pd.to_datetime(input_pred, utc=True)
     dt_day_ahead_end = dt_day_ahead_begin + np.timedelta64(23, "h")
 
-    dt_pv_data_begin = dt_day_ahead_begin - np.timedelta64(2, "D")
-    dt_pv_data_end = dt_day_ahead_end - np.timedelta64(2, "D")
-
     dt_noon_weather_forecast = dt_day_ahead_begin - np.timedelta64(12, "h")
+
+    dt_pv_data_begin = dt_noon_weather_forecast - np.timedelta64(47, "h")
+    dt_pv_data_end = dt_noon_weather_forecast
 
     print(Fore.MAGENTA + "\n⭐️ Use case: predict" + Style.RESET_ALL)
 
@@ -499,7 +499,7 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
         SELECT *
         FROM {GCP_PROJECT}.{BQ_DATASET}.raw_pv
         WHERE _0 BETWEEN {int(dt_pv_data_begin.timestamp()) * 1000}
-                    AND {int(dt_noon_weather_forecast.timestamp()) * 1000}
+                    AND {int(dt_pv_data_end.timestamp()) * 1000}
         ORDER BY _0
     """
 
@@ -507,11 +507,8 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
     data_pv_query = query_bq_data(query=query_pv, gcp_project=GCP_PROJECT)
     data_pv_query["local_time"] = pd.to_datetime(data_pv_query["local_time"], utc=True)
 
-    # Clean data for the first 24h only
-    timestamp_pv_data_end = int(dt_pv_data_end.timestamp()) * 1000
-    data_pv_processed = preprocess_PV_features(
-        data_pv_query.query("_0 <= @timestamp_pv_data_end")
-    )
+    # Clean data
+    data_pv_processed = preprocess_PV_features(data_pv_query)
 
     # Query raw historical weather forecast data from BigQuery
     query_forecast = f"""
@@ -520,8 +517,6 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
         WHERE forecast_dt_unixtime = {int(dt_noon_weather_forecast.timestamp())}
         ORDER BY forecast_dt_unixtime, slice_dt_unixtime
     """
-    # AND slice_dt_unixtime BETWEEN {int(dt_day_ahead_begin.timestamp())}
-    #             AND {int(dt_day_ahead_end.timestamp())}
 
     data_forecast_query = query_bq_data(query=query_forecast, gcp_project=GCP_PROJECT)
 
@@ -559,6 +554,6 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
 
 if __name__ == "__main__":
     # preprocess()
-    train()
+    # train()
     # evaluate()
-    # pred()
+    pred()
