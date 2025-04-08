@@ -6,6 +6,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from colorama import Fore, Style
+from mlflow.models import infer_signature
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -19,7 +20,11 @@ from day_ahead_power_forecast.ml_ops.data import (
     load_data_to_bq,
     query_bq_data,
 )
-from day_ahead_power_forecast.ml_ops.model import RNNModel, compute_regression_metrics
+from day_ahead_power_forecast.ml_ops.model import (
+    EarlyStopper,
+    RNNModel,
+    compute_regression_metrics,
+)
 from day_ahead_power_forecast.ml_ops.preprocessor import (
     preprocess_forecast_features,
     preprocess_PV_features,
@@ -31,12 +36,15 @@ from day_ahead_power_forecast.ml_ops.registry import (
     save_results,
 )
 from day_ahead_power_forecast.params import (
+    BATCH_SIZE,
     BQ_DATASET,
     DATASET,
+    EARLY_STOPPING_PATIENCE,
     EPOCHS,
     GCP_PROJECT,
     INPUT_WIDTH,
     LABEL_WIDTH,
+    LEARNING_RATE,
     LOCAL_DATA_PATH,
     MODEL_TARGET,
     SHIFT,
@@ -133,9 +141,9 @@ def train(
     train_start_forecast: str = "2017-10-07 00:00:00",
     train_stop_forecast: str = "2021-12-13 18:00:00",
     sequences: int = 10_000,
-    learning_rate: float = 1e-3,
-    batch_size: int = 32,
-    patience: int = 5,
+    learning_rate: float = LEARNING_RATE,
+    batch_size: int = BATCH_SIZE,
+    patience: int = EARLY_STOPPING_PATIENCE,
 ) -> float:
     """
     - Download processed data from your BQ table (or from cache if it exists)
@@ -199,7 +207,7 @@ def train(
         input_width=INPUT_WIDTH,
         label_width=LABEL_WIDTH,
         shift=SHIFT,
-        number_sequences=10_000,
+        number_sequences=sequences,
         train_df=train_df_pv,
         val_df=val_df_pv,
         test_df=test_df_pv,
@@ -289,27 +297,36 @@ def train(
         return loss, vloss, mae, vmae
 
     history = defaultdict(list)
+    early_stopping = EarlyStopper(patience=patience)
     for epoch in tqdm(range(EPOCHS)):
         print(f"Epoch {epoch + 1}:")
         model.train()
         loss, vloss, mae, vmae = training_one_epoch(model, train_loader, val_loader)
+
         history["loss"].append(loss)
         history["val_loss"].append(vloss)
         history["mae"].append(mae)
         history["val_mae"].append(vmae)
 
+        if early_stopping.early_stop(vloss):
+            print(f"Early stopping at epoch {epoch}")
+            break
+
     index_min_mae = np.argmin(history["val_mae"])
+    index_min_vloss = -patience
     train_metrics = {
-        "loss": history["loss"][index_min_mae].detach(),
-        "val_loss": history["val_loss"][index_min_mae],
-        "mae": history["mae"][index_min_mae].detach(),
-        "val_mae": history["val_mae"][index_min_mae],
+        "loss": history["loss"][index_min_vloss].detach(),
+        "val_loss": history["val_loss"][index_min_vloss],
+        "mae": history["mae"][index_min_vloss].detach(),
+        "val_mae": history["val_mae"][index_min_vloss],
     }
 
     params = {
         "context": "train",
+        "dataset": DATASET,
         "training_period": "",
         "epochs": EPOCHS,
+        "patience": patience,
         "learning_rate": learning_rate,
         "batch_size": batch_size,
         "loss_function": loss_fn.__class__.__name__,
@@ -321,7 +338,11 @@ def train(
     save_results(params=params, metrics=train_metrics, history=history)
 
     # Save model weights & summary
-    save_model(model=model)
+    signature = infer_signature(
+        model_input=train_dataset.example[0],
+        model_output=train_dataset.example[1],
+    )
+    save_model(model=model, signature=signature)
     if MODEL_TARGET == "mlflow":
         mlflow_transition_model(current_stage="dev", new_stage="staging")
 

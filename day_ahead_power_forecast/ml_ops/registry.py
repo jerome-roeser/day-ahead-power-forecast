@@ -70,7 +70,9 @@ def save_results(
     print("✅ Results saved locally")
 
 
-def save_model(model: torch.nn.Module = None) -> None:
+def save_model(
+    model: torch.nn.Module = None, signature: mlflow.models.ModelSignature = None
+) -> None:
     """
     Persist trained model locally on the hard drive at
                 f"{LOCAL_REGISTRY_PATH}/models/{timestamp}.pt"
@@ -117,6 +119,7 @@ def save_model(model: torch.nn.Module = None) -> None:
 
         mlflow.pytorch.log_model(
             pytorch_model=model,
+            signature=signature,
             artifact_path="model",
             registered_model_name=f"dev.ml_team.{DATASET}.{MLFLOW_MODEL_NAME}",
         )
