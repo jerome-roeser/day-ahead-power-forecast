@@ -482,6 +482,16 @@ def evaluate(
 def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
     """
     Make a prediction using the latest trained model
+
+    Parameters
+    ----------
+    input_pred : str
+        Format: YYYY-MM-DD
+        The date for which you want to make a prediction.
+    Returns
+    ----------
+    y_pred_df : pd.DataFrame
+        DataFrame containing the prediction and the corresponding UTC time.
     """
 
     model = load_model()
