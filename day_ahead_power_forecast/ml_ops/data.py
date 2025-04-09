@@ -144,8 +144,10 @@ def get_stats_table(
       multilevel index because statistics are returned for electricity and
       capacity factor.
     """
-    years_df = years_df[years_df["utc_time"] < min_date]
-    years_df["hour_of_year"] = years_df.utc_time.apply(lambda x: x.strftime("%m%d%H"))
+    years_df = years_df[years_df["local_time"] < min_date]
+    years_df["hour_of_year"] = years_df["local_time"].apply(
+        lambda x: x.strftime("%m%d%H")
+    )
     if capacity:
         stats_df = (
             years_df[["hour_of_year", "cap_fac"]]
@@ -190,7 +192,13 @@ def postprocess(
     ).to_frame(index=False, name="utc_time")
 
     # create df with the preprocessed data in the time window
-    plot_df = pd.merge(window_df, preprocessed_df, on="utc_time", how="inner")
+    plot_df = pd.merge(
+        window_df,
+        preprocessed_df,
+        left_on="utc_time",
+        right_on="local_time",
+        how="inner",
+    )
 
     # add statistics in the time window
     plot_df["hour_of_year"] = plot_df.utc_time.apply(lambda x: x.strftime("%m%d%H"))
