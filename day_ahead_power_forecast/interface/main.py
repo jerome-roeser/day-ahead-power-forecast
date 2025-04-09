@@ -1,6 +1,7 @@
 from collections import defaultdict
 from pathlib import Path
 
+import mlflow
 import numpy as np
 import pandas as pd
 import torch
@@ -22,7 +23,7 @@ from day_ahead_power_forecast.ml_ops.data import (
 )
 from day_ahead_power_forecast.ml_ops.model import (
     EarlyStopper,
-    RNNModel,
+    LSTMModel_2,
     compute_regression_metrics,
 )
 from day_ahead_power_forecast.ml_ops.preprocessor import (
@@ -246,7 +247,7 @@ def train(
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
     # test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
-    model = RNNModel(p=n_features)
+    model = LSTMModel_2(p=n_features)
     loss_fn = nn.MSELoss()
     optim = torch.optim.Adam(params=model.parameters(), lr=learning_rate)
 
@@ -266,6 +267,8 @@ def train(
 
             if batch % 10 == 9:
                 loss, current = loss.item(), batch * batch_size + len(X)
+                mlflow.log_metric("train_loss", loss, step=current)
+                mlflow.log_metric("train_mae", mae, step=current)
                 print(f"\tloss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
         with torch.no_grad():
@@ -289,6 +292,8 @@ def train(
 
                 if j % 10 == 9:
                     vloss, vcurrent = vloss.item(), j * batch_size + len(vinputs)
+                    mlflow.log_metric("val_loss", vloss, step=vcurrent)
+                    mlflow.log_metric("val_mae", vmae, step=vcurrent)
                     print(f"\tval loss: {vloss:>7f}  [{vcurrent:>5d}/{vsize:>5d}]")
 
             model.train(True)

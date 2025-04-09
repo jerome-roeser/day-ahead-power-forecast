@@ -49,6 +49,28 @@ class LSTMModel(nn.Module):
         return x.view(len(x), -1, 1)
 
 
+class LSTMModel_2(nn.Module):
+    def __init__(self, p: int):
+        super(LSTMModel_2, self).__init__()
+        self.n_features = p
+        self.lstm1 = nn.LSTM(p, 24, batch_first=True)
+        self.lstm2 = nn.LSTM(24, 24, batch_first=True)
+        self.linear1 = nn.Linear(24, 16)
+        self.dropout = nn.Dropout(0.5)
+        self.linear2 = nn.Linear(16, 24)
+
+    def forward(self, x):
+        x, _ = self.lstm1(x)
+        x = F.tanh(x)
+        x, _ = self.lstm2(x)
+        x = F.tanh(x)
+        x = self.linear1(x[:, -1, :])
+        x = F.relu(x)
+        x = self.dropout(x)
+        x = self.linear2(x)
+        return x.view(len(x), -1, 1)
+
+
 class EarlyStopper:
     def __init__(self, patience=1, min_delta=0):
         self.patience = patience

@@ -114,7 +114,7 @@ def save_model(
         )
 
         with open(summary_path, "w") as f:
-            f.write(str(summary(model)))
+            f.write(str(summary(model, verbose=2)))
         mlflow.log_artifact(summary_path)
 
         mlflow.pytorch.log_model(

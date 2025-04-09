@@ -10,8 +10,8 @@ SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
 ################## MODEL PARAMETERS ##################
 EPOCHS = 100
 EARLY_STOPPING_PATIENCE = 5
-BATCH_SIZE = 16
-LEARNING_RATE = 1e-3
+BATCH_SIZE = 32
+LEARNING_RATE = 0.02
 
 ################## SEQUENCING PARAMETERS ##################
 INPUT_WIDTH = 48
