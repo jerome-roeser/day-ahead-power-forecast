@@ -253,7 +253,6 @@ def train(
     def training_one_epoch(model, train_dataloader, val_dataloader):
         size = len(train_dataloader.dataset)
         running_loss = 0
-        # earlystopping = 0
         for batch, data in enumerate(train_dataloader):
             X, y = data
             output = model(X)
@@ -278,7 +277,7 @@ def train(
             # In evaluation mode some model specific operations can be omitted
             #  -> eg. dropout layer
             # Switching to evaluation mode, eg. turning off regularisation
-            model.train(False)
+            model.eval()
             for j, vdata in enumerate(val_dataloader):
                 vinputs, vlabels = vdata
                 voutputs = model(vinputs)
