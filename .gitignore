@@ -1,5 +1,5 @@
 # private /and heavy) data files
-data/
+data/*
 *.local_data/
 mlruns/
 token.json
