@@ -1,5 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
+from typing import Literal
 
 import mlflow
 import numpy as np
@@ -47,6 +48,7 @@ from day_ahead_power_forecast.params import (
     LABEL_WIDTH,
     LEARNING_RATE,
     LOCAL_DATA_PATH,
+    MLFLOW_EXPERIMENT,
     MODEL_TARGET,
     SHIFT,
 )
@@ -54,12 +56,10 @@ from day_ahead_power_forecast.params import (
 
 def preprocess() -> None:
     """
-    - Query the raw dataset from Le Wagon's BigQuery dataset
+    - Query the raw dataset from the BigQuery dataset
     - Cache query result as a local CSV if it doesn't exist locally
     - Process query data
-    - Store processed data on your personal BQ (truncate existing table if it exists)
-    - No need to cache processed data as CSV (it will be cached when queried back
-        from BQ during training)
+    - Store processed data on BigQuery
     """
 
     print(Fore.MAGENTA + "\n ⭐️ Use case: preprocess" + Style.RESET_ALL)
@@ -137,10 +137,6 @@ def preprocess() -> None:
 
 
 def train(
-    train_start_pv: str = "1980-01-01 00:00:00",
-    train_stop_pv: str = "2014-05-26 18:00:00",
-    train_start_forecast: str = "2017-10-07 00:00:00",
-    train_stop_forecast: str = "2021-12-13 18:00:00",
     sequences: int = 10_000,
     learning_rate: float = LEARNING_RATE,
     batch_size: int = BATCH_SIZE,
@@ -148,10 +144,24 @@ def train(
 ) -> float:
     """
     - Download processed data from your BQ table (or from cache if it exists)
-    - Train on the preprocessed dataset (which should be ordered by date)
+    - Train on the preprocessed dataset
     - Store training results and model weights
 
-    Return val_mae as a float
+    Parameters
+    ----------
+    sequences : int
+        Number of sequences to generate for training on pv dataset
+    learning_rate : float
+        Learning rate for the optimizer
+    batch_size : int
+        Batch size for the Dataloaders
+    patience : int
+        Number of epochs with no improvement for early stopping
+
+    Returns
+    -------
+    val_mae: float
+        The mean absolute error of the model on the validation set
     """
 
     print(Fore.MAGENTA + "\n⭐️ Use case: train" + Style.RESET_ALL)
@@ -302,6 +312,7 @@ def train(
 
     history = defaultdict(list)
     early_stopping = EarlyStopper(patience=patience)
+    mlflow.set_experiment(experiment_name=MLFLOW_EXPERIMENT)
     for epoch in tqdm(range(EPOCHS)):
         print(f"Epoch {epoch + 1}:")
         model.train()
@@ -342,10 +353,17 @@ def train(
     save_results(params=params, metrics=train_metrics, history=history)
 
     # Save model weights & summary
-    signature = infer_signature(
-        model_input=train_dataset.example[0],
-        model_output=train_dataset.example[1],
-    )
+    if DATASET == "pv":
+        signature = infer_signature(
+            model_input=train_dataset[0][0].numpy(),
+            model_output=train_dataset[0][1].numpy(),
+        )
+    else:
+        signature = infer_signature(
+            model_input=train_dataset[0][0],
+            model_output=train_dataset[0][1],
+        )
+
     save_model(model=model, signature=signature)
     if MODEL_TARGET == "mlflow":
         mlflow_transition_model(current_stage="dev", new_stage="staging")
@@ -356,17 +374,20 @@ def train(
 
 
 def evaluate(
-    test_start_pv: str = "2014-05-26 19:00:00",
-    test_stop_pv: str = "2022-12-30 23:00:00",
-    test_start_forecast: str = "2021-12-13 18:00:00",
-    test_stop_forecast: str = "2022-12-30 23:00:00",
-    sequences: int = 1_000,
-    batch_size: int = 32,
-    stage: str = "production",
+    stage: Literal["dev", "staging", "production", "archived"] = "production",
 ) -> float:
     """
     Evaluate the performance of the latest production model on processed data
-    Return MAE as a float
+
+    Parameters
+    ----------
+    stage : str
+        Stage of the model to load (e.g., "production", "staging")
+
+    Returns
+    -------
+    mae : float
+        Mean Absolute Error of the model on the test set
     """
     print(Fore.MAGENTA + "\n⭐️ Use case: evaluate" + Style.RESET_ALL)
 
@@ -462,7 +483,7 @@ def evaluate(
 
     # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     # val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     metrics_dict = compute_regression_metrics(model, test_loader)
     mae = metrics_dict["mae"]
@@ -486,8 +507,9 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
     Parameters
     ----------
     input_pred : str
-        Format: YYYY-MM-DD
+        Format: ***YYYY-MM-DD***
         The date for which you want to make a prediction.
+
     Returns
     ----------
     y_pred_df : pd.DataFrame
@@ -568,6 +590,6 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
 
 if __name__ == "__main__":
     # preprocess()
-    # train()
+    train()
     # evaluate()
-    pred()
+    # pred()

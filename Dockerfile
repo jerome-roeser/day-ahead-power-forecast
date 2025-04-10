@@ -7,13 +7,8 @@ COPY requirements.txt requirements.txt
 RUN pip install -r requirements.txt
 
 # Then only, install power
-COPY power power
-# COPY le-wagon-data-411310-7c498969c3b9.json le-wagon-data-411310-7c498969c3b9.json
-COPY setup.py setup.py
-RUN pip install .
+COPY day_ahead_power_forecast day_ahead_power_forecast
 
-COPY Makefile Makefile
-# RUN make reset_local_files
-# COPY 20240310-115742.h5 /root/.lewagon/mlops/training_outputs/models/20240310-115742.h5
+EXPOSE $PORT
 
-CMD uvicorn power.api.fast:app --host 0.0.0.0 --port $PORT
+CMD ["uvicorn", "day_ahead_power_forecast.api.fast:app", "--host", "0.0.0.0"]

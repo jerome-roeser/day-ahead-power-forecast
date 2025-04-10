@@ -18,4 +18,4 @@ Check out our [streamlit](https://advanced-power-forecast-photovoltaic.streamlit
 
 
 
-![alt text](power/images/screenshot-1.png "Day-Ahead Power Forecast")
+![alt text](day_ahead_power_forecast/images/screenshot-1.png "Day-Ahead Power Forecast")

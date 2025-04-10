@@ -5,7 +5,7 @@ import pandas as pd
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from day_ahead_power_forecast.interface.main import pred  # , postprocess
+from day_ahead_power_forecast.interface.main import pred
 from day_ahead_power_forecast.ml_ops.data import (
     get_data_with_cache,
     get_stats_table,
@@ -55,10 +55,10 @@ app.state.data_pv_clean = data_processed
 ### app end points =============================================================
 
 
-@app.get("/prediction")
-def prediction(
+@app.get("/predict")
+def predict(
     input_date: str,
-    dataset: Literal["pv", "forecast"] = "pv",
+    dataset: Optional[Literal["pv", "forecast"]] = "pv",
     capacity: Optional[Literal["true", "false"]] = "false",
 ) -> None:
     """
@@ -69,7 +69,7 @@ def prediction(
     input_date : str
         Format: YYYY-MM-DD
         The date for which you want to make a prediction.
-    dataset : str
+    dataset : str, optional
         The dataset to use for prediction. Default is 'pv'.
     capacity : str, optional
         If 'true', the prediction will be in capacity factor. Default is 'false'.
@@ -85,14 +85,12 @@ def prediction(
     pred_df = pred(f"{input_date}")
     preprocessed_df = app.state.data_pv_clean
     if capacity == "true":
-        print("Capacity!")
         preprocessed_df["cap_fac"] = (
             preprocessed_df.electricity / 0.9 * 100
         )  # 0.9 is max value for pv
         stats_df = get_stats_table(preprocessed_df, capacity=True)
         pred_df.pred = pred_df.pred / 0.9 * 100
     else:
-        print("Electricity!")
         stats_df = get_stats_table(preprocessed_df, capacity=False)
 
     # get plot_df
@@ -108,7 +106,3 @@ def prediction(
 @app.get("/")
 def root():
     return {"greeting": "Hello"}
-
-
-if __name__ == "__main__":
-    prediction("2022-07-06")

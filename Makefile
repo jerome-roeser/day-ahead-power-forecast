@@ -119,7 +119,7 @@ reset_all_files: reset_local_files reset_bq_files reset_gcs_files
 ################### DOCKER COMMANDS ##########################
 
 # Edit tag (prod, 0.1, light, dev, ...)
-TAG=1.2
+TAG=0.1
 
 PROJECT=${GCP_PROJECT}
 IMAGE=${GAR_IMAGE}
@@ -152,6 +152,9 @@ build_image:
 
 run_image:
 	docker run -e PORT=8000 -p 8080:8000 --env-file .env ${IMAGE_URI}
+
+run_image_it_shell:
+	docker run -it ${IMAGE_URI} sh
 
 # put in production - for all machines
 push_image:

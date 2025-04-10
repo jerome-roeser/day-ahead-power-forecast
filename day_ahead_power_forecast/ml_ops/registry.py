@@ -121,7 +121,7 @@ def save_model(
             pytorch_model=model,
             signature=signature,
             artifact_path="model",
-            registered_model_name=f"dev.ml_team.{DATASET}.{MLFLOW_MODEL_NAME}",
+            registered_model_name=f"dev.ml_team.{MLFLOW_MODEL_NAME}.{DATASET}",
         )
 
         print("✅ Model saved to MLflow")
@@ -167,7 +167,9 @@ def load_model(stage="production") -> torch.nn.Module:
         print(Fore.BLUE + "\nLoad latest model from GCS..." + Style.RESET_ALL)
 
         client = storage.Client()
-        blobs = list(client.get_bucket(BUCKET_NAME).list_blobs(prefix="model"))
+        blobs = list(
+            client.get_bucket(BUCKET_NAME).list_blobs(prefix=f"models/{DATASET}")
+        )
 
         try:
             latest_blob = max(blobs, key=lambda x: x.updated)
@@ -198,7 +200,7 @@ def load_model(stage="production") -> torch.nn.Module:
             return None
 
         client = MlflowClient()
-        registered_model_name = f"{stage}.ml_team.{DATASET}.{MLFLOW_MODEL_NAME}"
+        registered_model_name = f"{stage}.ml_team.{MLFLOW_MODEL_NAME}.{DATASET}"
 
         try:
             latest_registered_model = client.get_registered_model(
@@ -237,11 +239,11 @@ def mlflow_transition_model(current_stage: str, new_stage: str) -> None:
         return None
 
     client = MlflowClient()
-    src_name = f"{current_stage}.ml_team.{MLFLOW_MODEL_NAME}"
+    src_name = f"{current_stage}.ml_team.{MLFLOW_MODEL_NAME}.{DATASET}"
 
     # Copy the source model version into a new registered model
     mv_src = client.get_registered_model(src_name).latest_versions[0]
-    dst_name = f"{new_stage}.ml_team.{DATASET}.{MLFLOW_MODEL_NAME}"
+    dst_name = f"{new_stage}.ml_team.{MLFLOW_MODEL_NAME}.{DATASET}"
     src_model_uri = f"models:/{mv_src.name}/{mv_src.version}"
     client.copy_model_version(src_model_uri, dst_name)
 

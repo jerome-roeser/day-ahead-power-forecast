@@ -22,7 +22,7 @@ def call_visu(today_date):
         "capacity": "true",
     }
 
-    endpoint_visu = "/visualisation"
+    endpoint_visu = "/predict"
     url_visu = f"{base_url}{endpoint_visu}"
     response_visu = requests.get(url_visu, params_visu).json()
 
