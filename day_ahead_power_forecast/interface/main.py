@@ -114,10 +114,29 @@ def preprocess() -> None:
     # Clean data
     data_forecast_clean = clean_forecast_data(data_forecast_query)
 
-    # stick electricity data to the forecast data
+    # stick day_ahead (label) and day_before (feature) electricity data to the
+    # weather forecast data
+
+    # the electricity feature is the electricity produced 2 days before
+    # the production amount we want to predict
+    data_forecast_clean["electricity_feature_utc_time"] = data_forecast_clean[
+        "prediction_utc_time"
+    ] - np.timedelta64(2, "D")
+
     merged_forecast_pv = pd.merge(
         data_pv_query[["local_time", "electricity"]],
         data_forecast_clean,
+        left_on="local_time",
+        right_on="electricity_feature_utc_time",
+        how="inner",
+    )
+    merged_forecast_pv = merged_forecast_pv.rename(
+        columns={"electricity": "electricity_feature"}
+    )
+
+    merged_forecast_pv = pd.merge(
+        data_pv_query[["local_time", "electricity"]],
+        merged_forecast_pv,
         left_on="local_time",
         right_on="prediction_utc_time",
         how="inner",
@@ -558,7 +577,27 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
 
     # Clean data
     data_forecast_clean = clean_forecast_data(data_forecast_query)
-    data_forecast_processed = preprocess_forecast_features(data_forecast_clean)
+
+    # stick day_ahead (label) electricity data to the weather forecast data
+
+    # the electricity feature is the electricity produced 2 days before
+    # the production amount we want to predict
+    data_forecast_clean["electricity_feature_utc_time"] = data_forecast_clean[
+        "prediction_utc_time"
+    ] - np.timedelta64(2, "D")
+
+    merged_forecast_pv = pd.merge(
+        data_pv_query[["local_time", "electricity"]],
+        data_forecast_clean,
+        left_on="local_time",
+        right_on="electricity_feature_utc_time",
+        how="inner",
+    )
+    merged_forecast_pv = merged_forecast_pv.rename(
+        columns={"electricity": "electricity_feature"}
+    )
+
+    data_forecast_processed = preprocess_forecast_features(merged_forecast_pv)
 
     if DATASET == "pv":
         X = data_pv_processed.select_dtypes(include=np.number)
@@ -589,7 +628,7 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    # preprocess()
+    preprocess()
     train()
-    # evaluate()
-    # pred()
+    evaluate()
+    pred()
