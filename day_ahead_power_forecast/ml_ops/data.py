@@ -4,7 +4,10 @@ import pandas as pd
 from colorama import Fore, Style
 from google.cloud import bigquery
 
-from day_ahead_power_forecast.params import BQ_DATASET, GCP_PROJECT
+from day_ahead_power_forecast.params import (
+    BQ_DATASET,
+    GCP_PROJECT,
+)
 from day_ahead_power_forecast.utils import compress
 
 

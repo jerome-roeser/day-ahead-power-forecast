@@ -48,6 +48,7 @@ from day_ahead_power_forecast.params import (
     LABEL_WIDTH,
     LEARNING_RATE,
     LOCAL_DATA_PATH,
+    MLFLOW_EXPERIMENT,
     MODEL_TARGET,
     SHIFT,
 )
@@ -311,6 +312,7 @@ def train(
 
     history = defaultdict(list)
     early_stopping = EarlyStopper(patience=patience)
+    mlflow.set_experiment(experiment_name=MLFLOW_EXPERIMENT)
     for epoch in tqdm(range(EPOCHS)):
         print(f"Epoch {epoch + 1}:")
         model.train()
@@ -351,10 +353,17 @@ def train(
     save_results(params=params, metrics=train_metrics, history=history)
 
     # Save model weights & summary
-    signature = infer_signature(
-        model_input=train_dataset.example[0],
-        model_output=train_dataset.example[1],
-    )
+    if DATASET == "pv":
+        signature = infer_signature(
+            model_input=train_dataset[0][0].numpy(),
+            model_output=train_dataset[0][1].numpy(),
+        )
+    else:
+        signature = infer_signature(
+            model_input=train_dataset[0][0],
+            model_output=train_dataset[0][1],
+        )
+
     save_model(model=model, signature=signature)
     if MODEL_TARGET == "mlflow":
         mlflow_transition_model(current_stage="dev", new_stage="staging")
@@ -365,7 +374,7 @@ def train(
 
 
 def evaluate(
-    stage: str = Literal["dev", "staging", "production", "archived"],
+    stage: Literal["dev", "staging", "production", "archived"] = "production",
 ) -> float:
     """
     Evaluate the performance of the latest production model on processed data
@@ -581,6 +590,6 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
 
 if __name__ == "__main__":
     # preprocess()
-    # train()
+    train()
     # evaluate()
-    pred()
+    # pred()
