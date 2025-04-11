@@ -7,7 +7,7 @@ from torch.utils.data import Dataset, TensorDataset
 from tqdm import tqdm
 
 
-class PhotovoltaicDataWindowGenerator:
+class PhotovoltaicWindowGenerator:
     """
     Data windowing class for PV time series data.
 
