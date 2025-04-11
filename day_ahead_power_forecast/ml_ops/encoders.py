@@ -7,11 +7,15 @@ def time_features_encoder(X: pd.DataFrame, time_column_name) -> pd.DataFrame:
     Convert local time into cyclic features to feed significant signal
     in ML / DL algorithm
 
-    Arguments:
-        X (pd.DataFrame): datafrane to transform
+    Parameters
+    ----------
+    X (pd.DataFrame):
+        Dataframe to transform
 
-    Returns:
-        X (pd.DataFrame): DataFrame with 4 addtional features per time column
+    Returns
+    -------
+    X (pd.DataFrame)
+        DataFrame with 4 addtional features per time column
     """
     X = X.copy()
 
@@ -33,10 +37,14 @@ def wind_features_encoder(X: pd.DataFrame) -> pd.DataFrame:
     Convert local time into cyclic features to feed significant signal
     in ML / DL algorithm
 
-    Args:
-        X: datafrane to transform
+    Parameters
+    ----------
+    X (pd.DataFrame):
+        Dataframe to transform
 
-    Returns:
+    Returns
+    -------
+    X (pd.DataFrame)
         DataFrame with 4 addtional features per time column
     """
     X = X.copy()

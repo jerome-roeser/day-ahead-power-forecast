@@ -17,13 +17,21 @@ def compress(df: pd.DataFrame, **kwargs) -> pd.DataFrame:
     out_size = df.memory_usage(index=True).sum()
     ratio = (1 - round(out_size / in_size, 2)) * 100
 
-    print("optimized size by {} %".format(round(ratio, 2)))
-    print("new dataframe size: ", round(out_size / 1024, 2), " kB")
+    print(f"optimized size by {ratio:.2f} %")
+    print(f"new dataframe size: {out_size / 1024:.2f} kB")
 
     return df
 
 
-def plot_loss_mae(history):
+def plot_loss_mae(history: dict) -> None:
+    """
+    Side by side plot of loss and mae training metrics
+
+    Parameters
+    ----------
+    history (dict)
+        History dict returned by the training of the pytorch model
+    """
     # Setting figures
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 4))
 
@@ -42,10 +50,6 @@ def plot_loss_mae(history):
     ax2.set_title("Mean Absolute Error")
     ax2.set_ylabel("MAE")
     ax2.set_xlabel("Epoch")
-
-    # Set limits for y-axes
-    # ax1.set_ylim(ymin=0, ymax=20)
-    # ax2.set_ylim(ymin=0, ymax=200)
 
     # Generate legends
     ax1.legend(["Train", "Validation"], loc="best")
