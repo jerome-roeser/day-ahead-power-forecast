@@ -12,10 +12,6 @@ from mlflow.models import infer_signature
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from day_ahead_power_forecast.ml_ops.cross_val import (
-    PhotovoltaicDataWindowGenerator,
-    WeatherForecastDataset,
-)
 from day_ahead_power_forecast.ml_ops.data import (
     clean_forecast_data,
     get_data_with_cache,
@@ -37,6 +33,10 @@ from day_ahead_power_forecast.ml_ops.registry import (
     mlflow_transition_model,
     save_model,
     save_results,
+)
+from day_ahead_power_forecast.ml_ops.sequence import (
+    PhotovoltaicWindowGenerator,
+    WeatherForecastDataset,
 )
 from day_ahead_power_forecast.params import (
     BATCH_SIZE,
@@ -232,7 +232,7 @@ def train(train_val_test_split: Tuple[float, float, float] = (0.7, 0.2, 0.1)) ->
         int(n_pv * train_ratio) : int(n_pv * (train_ratio + val_ratio))
     ]
 
-    sequences_pv = PhotovoltaicDataWindowGenerator(
+    sequences_pv = PhotovoltaicWindowGenerator(
         input_width=INPUT_WIDTH,
         label_width=LABEL_WIDTH,
         shift=SHIFT,
@@ -428,7 +428,7 @@ def evaluate(
     train_df_pv = data_processed_pv[0 : int(n_pv * (1 - split_ratio))]
     test_df_pv = data_processed_pv[int(n_pv * (1 - split_ratio)) :]
 
-    sequences_pv = PhotovoltaicDataWindowGenerator(
+    sequences_pv = PhotovoltaicWindowGenerator(
         input_width=INPUT_WIDTH,
         label_width=LABEL_WIDTH,
         shift=SHIFT,
