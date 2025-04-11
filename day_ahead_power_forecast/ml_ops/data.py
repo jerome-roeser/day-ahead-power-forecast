@@ -17,6 +17,18 @@ def query_bq_data(
 ) -> pd.DataFrame:
     """
     Retrieve `query` data from BigQuery
+
+    Parameters
+    ----------
+    gcp_project: str
+        GCP project name
+    query: str
+        SQL query to be executed
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with the result of the query
     """
 
     print(Fore.BLUE + "\nLoad data from BigQuery server..." + Style.RESET_ALL)
@@ -34,8 +46,26 @@ def get_data_with_cache(
     gcp_project: str, query: str, cache_path: Path, data_has_header=True
 ) -> pd.DataFrame:
     """
-    Retrieve `query` data from BigQuery, or from `cache_path` if the file exists
+    Retrieve `query` data from:
+        - BigQuery with the query_bq_data function,
+        - or from `cache_path` if the file exists.
+
     Store at `cache_path` if retrieved from BigQuery for future use
+
+    Parameters
+    ----------
+    gcp_project: str
+        GCP project name
+    query: str
+        SQL query to be executed
+    cache_path: Path
+        Path to the CSV file to be used as cache
+    data_has_header: bool
+        Whether the CSV file has a header row
+
+    Returns
+    -------
+    pd.DataFrame
     """
     if cache_path.is_file():
         print(Fore.BLUE + "\nLoad data from local CSV..." + Style.RESET_ALL)
@@ -56,8 +86,22 @@ def load_data_to_bq(
     data: pd.DataFrame, gcp_project: str, bq_dataset: str, table: str, truncate: bool
 ) -> None:
     """
-    - Save the DataFrame to BigQuery
-    - Empty the table beforehand if `truncate` is True, append otherwise
+    Load data to BigQuery.
+        - Save the DataFrame to BigQuery
+        - Empty the table beforehand if `truncate` is True, append otherwise
+
+    Parameters
+    ----------
+    data: pd.DataFrame
+        DataFrame to be saved to BigQuery
+    gcp_project: str
+        GCP project name
+    bq_dataset: str
+        BigQuery dataset name
+    table: str
+        BigQuery table name
+    truncate: bool
+        Whether to empty the table before saving the data
     """
 
     assert isinstance(data, pd.DataFrame)
@@ -87,11 +131,25 @@ def load_data_to_bq(
 
 def clean_forecast_data(forecast_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Initial has 3.3 M entries (everyday: 4 forecasts of 16 days ahead)
-    Cleaning it to: - 1 forecast perday (at 12:00)
-                    - 48 hours a day
-                    - right now hardcoded to match last forecast day with
-                     last day of PV data
+    Clean the forecast data from OpenWeather API.
+    Initial dataset has 3.3 M entries (everyday: 4 forecasts of 16 days ahead)
+    The function cleans the data to:
+        - 1 forecast per day (at 12:00)
+        - 48 hours a day
+
+    Parameters
+    ----------
+    forecast_df: pd.DataFrame
+        A raw forecast dataframe from OpenWeather API loaded on BigQuery.
+
+        This detail is important since the raw data has a different column names
+        that are not compatible with BQ (a small preprocsessing is needed to load it on the cloud)
+
+    Returns
+    -------
+    df: pd.DataFrame
+        A cleaned dataframe
+
     """
     df = compress(forecast_df)
     df = df.drop(columns=["lat", "lon", "forecast_dt_iso", "slice_dt_iso"])
@@ -130,24 +188,33 @@ def clean_forecast_data(forecast_df: pd.DataFrame) -> pd.DataFrame:
 
 def get_stats_table(
     years_df: pd.DataFrame,
+    max_date="2020-01-01 00:00:00",
     capacity=False,
-    min_date="2020-01-01 00:00:00",
-    max_date="2022-12-29 23:00:00",
 ) -> pd.DataFrame:
     """
     Creates a table with statistics for electricity and optional capacity factor
     for every hour of the year (8784).
-    Input:
-      - Cleaned df that contains at least electricity
-      as column. The df should span several years, because every
-      year is one sample for the statictics.
-      - Optional flag for capacity factor
-    Output:
-      - df with 8784 hours of the years (including leap years) as rows. The df has
-      multilevel index because statistics are returned for electricity and
-      capacity factor.
+
+    Parameters
+    ----------
+    years_df: pd.DataFrame
+        Cleaned df that contains at least electricity
+        as column. The df should span several years, because every
+        year is one sample for the statictics.
+    max_date: str
+        The date upper limit for the time period to be considered
+        for the statistics.
+    capacity: bool
+        If True, the statistics are calculated for the capacity factor
+
+    Returns
+    -------
+    df: pd.DataFrame
+        A dataframe with 8784 hours of the years (including leap years) as rows.
+        The df has multilevel index because statistics are returned for electricity and
+        capacity factor.
     """
-    years_df = years_df[years_df["local_time"] < min_date]
+    years_df = years_df[years_df["local_time"] < max_date]
     years_df["hour_of_year"] = years_df["local_time"].apply(
         lambda x: x.strftime("%m%d%H")
     )
@@ -174,17 +241,34 @@ def postprocess(
 ) -> pd.DataFrame:
     """
     Create a df that contains all information necessary for the plot in streamlit.
+
     Accumulate all data for a specific time window defined by today.
-    Input:
-      - today: User input from streamlit; e.g. '2000-05-15'
-      - preprocessed_df: df with all years that can be selected in streamlit
-        (2000-2022)
-      - stats_df: provided by get_stats_table()
-      - pred_df: df from pred(), should contain two columns 'utc_time' and 'pred'
-    Output:
-      - plot_df with columns: utc_time, local_time, electricity, hour_of_year,
-        mean, median, std, skew, min, max, count, pred
-      - plot_df contains NaN-values! You have to replace them for api
+
+    Parameters
+    ----------
+    today: str
+        User input from streamlit; e.g. '2000-05-15'
+    preprocessed_df: pd.DataFrame
+        df with all years that can be selected in streamlit (2000-2022)
+    stats_df: pd.DataFrame
+        provided by get_stats_table()
+    pred_df: pd.DataFrame
+        df from pred(), should contain two columns 'utc_time' and 'pred'
+
+    Returns
+    -------
+    plot_df: pd.DataFrame
+        DataFrame with the preprocessed data in the time window
+        and the statistics for the selected time window.
+        The df contains the following columns:
+        - utc_time, local_time, hour_of_year: time of the forecast
+        - electricity: PV Electricity production
+        - mean, median, std, skew, min, max, count: Statistics for historical electricity production
+        - pred:our prediction for the next day
+
+    Note:
+    -----
+        plot_df contains NaN-values! You have to replace them for api
     """
     # define time period (3 days) for plotting
     today_timestamp = pd.Timestamp(today, tz="UTC")
@@ -240,6 +324,7 @@ def get_pv_data() -> pd.DataFrame:
 
 # Used in Makefile
 def load_raw_pv() -> None:
+    "Load raw PV data to BigQuery"
     data_raw = get_pv_data()
     assert data_raw.columns[0] == "_0-1"
     load_data_to_bq(
@@ -270,6 +355,7 @@ def get_forecast_data() -> pd.DataFrame:
 
 # Used in Makefile
 def load_raw_forecast() -> None:
+    "Load raw weather forecast data to BigQuery"
     data_raw = get_forecast_data()
     assert data_raw.columns[0] == "forecast_dt_unixtime"
     load_data_to_bq(

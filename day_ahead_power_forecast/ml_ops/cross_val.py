@@ -1,14 +1,77 @@
-import pandas as pd
-import numpy as np
-from tqdm import tqdm
-from typing import List
+from typing import List, Optional
 
+import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import Dataset, TensorDataset
+from tqdm import tqdm
 
 
-class SequenceGenerator:
-    """ """
+class PhotovoltaicDataWindowGenerator:
+    """
+    Data windowing class for PV time series data.
+
+    This class is used to create sequences of data for training and testing
+    machine learning models and convert them to a pytorch Dataset.
+
+    This class can:
+        - Handle the indexes and offsets for data windowing.
+        - Split windows of features into (features, labels) pairs.
+        - Efficiently generate batches of these windows from the training,
+        evaluation, and test data, using pytorch's TensorDataset class.
+
+
+    Parameters
+    ----------
+    input_width: int
+        Length of the input sequence
+    label_width: int
+        Length of the label sequence
+    shift: int
+        Number of time steps to shift the window (label width + time gap)
+        e.g. if label width is 24h and time gap  between input and prediction is 12h, shift = 36
+    number_sequences: int
+        Number of sequences to create
+    train_df: pd.DataFrame
+        DataFrame containing the training data
+    val_df: pd.DataFrame
+        DataFrame containing the validation data
+    test_df: pd.DataFrame
+        DataFrame containing the test data
+    label_columns: List[str]
+        List of column names to be used as labels
+
+    Attributes
+    ----------
+    column_indices: dict
+        Dictionary mapping column names to indices
+    label_columns_indices: dict
+        Dictionary mapping label column names to indices
+    input_slice: slice
+        Slice object for the input data
+    labels_slice: slice
+        Slice object for the labels
+    input_indices: np.ndarray
+        Array of input indices
+    label_indices: np.ndarray
+        Array of label indices
+    total_window_size: int
+        Total size of the window
+    input_width: int
+        Length of the input sequence
+    label_width: int
+        Length of the label sequence
+    shift: int
+        Number of time steps to shift the window
+    number_of_sequences: int
+        Number of sequences to create
+    train_df: pd.DataFrame
+        DataFrame containing the training data
+    val_df: pd.DataFrame
+        DataFrame containing the validation data
+    test_df: pd.DataFrame
+        DataFrame containing the test data
+    """
 
     def __init__(
         self,
@@ -17,9 +80,9 @@ class SequenceGenerator:
         shift: int,
         number_sequences: int,
         train_df: pd.DataFrame,
-        val_df: pd.DataFrame = None,
-        test_df: pd.DataFrame = None,
-        label_columns: List[str] = None,
+        val_df: Optional[pd.DataFrame] = None,
+        test_df: Optional[pd.DataFrame] = None,
+        label_columns: Optional[List[str]] = None,
     ):
         # Store the raw data.
         self.train_df = train_df
@@ -112,7 +175,37 @@ class SequenceGenerator:
         return result
 
 
-class SequenceForecastDataset(Dataset):
+class WeatherForecastDataset(Dataset):
+    """
+    Dataset class the Weather Forecast time series data.
+
+    Parameters
+    ----------
+    df: pd.DataFrame
+        Weather Forecast DataFrame
+    number_days_forecast: int
+        Number of days to forecast
+    label_columns: List[str]
+        List of column names to be used as labels
+
+    Attributes
+    ----------
+    df: pd.DataFrame
+        DataFrame containing the data
+    forecast_hours: int
+        Number of hours to forecast
+    number_of_sequences: int
+        Number of
+    label_columns: List[str]
+        List of column names to be used as labels
+    label_columns_indices: dict
+        Dictionary mapping label column names to indices
+    column_indices: dict
+        Dictionary mapping column names to indices
+    feature_columns: List[str]
+        List of column names to be used as features
+    """
+
     def __init__(
         self,
         df: pd.DataFrame,

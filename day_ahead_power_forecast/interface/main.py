@@ -1,6 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Tuple
 
 import mlflow
 import numpy as np
@@ -13,8 +13,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from day_ahead_power_forecast.ml_ops.cross_val import (
-    SequenceForecastDataset,
-    SequenceGenerator,
+    PhotovoltaicDataWindowGenerator,
+    WeatherForecastDataset,
 )
 from day_ahead_power_forecast.ml_ops.data import (
     clean_forecast_data,
@@ -26,6 +26,7 @@ from day_ahead_power_forecast.ml_ops.model import (
     EarlyStopper,
     LSTMModel_2,
     compute_regression_metrics,
+    training_one_epoch,
 )
 from day_ahead_power_forecast.ml_ops.preprocessor import (
     preprocess_forecast_features,
@@ -56,10 +57,13 @@ from day_ahead_power_forecast.params import (
 
 def preprocess() -> None:
     """
-    - Query the raw dataset from the BigQuery dataset
-    - Cache query result as a local CSV if it doesn't exist locally
-    - Process query data
-    - Store processed data on BigQuery
+    Prepare the data for the training and evaluation of the model.
+        - Query the raw dataset from BigQuery
+        - Cache query result as a local CSV if it doesn't exist locally
+        - Clean the the historical PV production data and encode the time features
+        - Adapt the wheather forecast data to 24h of prediction of the day ahead
+        - add the PV production label to the data as well as a PV production feature
+        - Store processed data on BigQuery
     """
 
     print(Fore.MAGENTA + "\n ⭐️ Use case: preprocess" + Style.RESET_ALL)
@@ -155,34 +159,26 @@ def preprocess() -> None:
     print("✅ preprocess() done \n")
 
 
-def train(
-    sequences: int = 10_000,
-    learning_rate: float = LEARNING_RATE,
-    batch_size: int = BATCH_SIZE,
-    patience: int = EARLY_STOPPING_PATIENCE,
-) -> float:
+def train(train_val_test_split: Tuple[float, float, float] = (0.7, 0.2, 0.1)) -> float:
     """
-    - Download processed data from your BQ table (or from cache if it exists)
-    - Train on the preprocessed dataset
-    - Store training results and model weights
+    Train the model on the processed data
+        - Download processed data from your BQ table (or from cache if it exists)
+        - Train on the preprocessed dataset
+        - Store training results and model weights
 
     Parameters
     ----------
-    sequences : int
-        Number of sequences to generate for training on pv dataset
-    learning_rate : float
-        Learning rate for the optimizer
-    batch_size : int
-        Batch size for the Dataloaders
-    patience : int
-        Number of epochs with no improvement for early stopping
+    train_val_test_split : tuple(float, float, float)
+        The split of the dataset into train, validation and test set
+        The default is (0.7, 0.2, 0.1).
 
     Returns
     -------
     val_mae: float
         The mean absolute error of the model on the validation set
     """
-
+    ############# Query Data ###############################################
+    # ==========================================================================
     print(Fore.MAGENTA + "\n⭐️ Use case: train" + Style.RESET_ALL)
     print(Fore.BLUE + "\nLoading preprocessed training data..." + Style.RESET_ALL)
 
@@ -226,116 +222,83 @@ def train(
         print("❌ Not enough processed data retrieved to train on")
         return None
 
-    # Split the data into training, validating and testing sets
+    ############# Split the data into training & validating sets ###############
+    # =========================================================================
+    train_ratio, val_ratio, test_ratio = train_val_test_split
 
     n_pv = len(data_processed_pv)
-    train_df_pv = data_processed_pv[0 : int(n_pv * 0.7)]
-    val_df_pv = data_processed_pv[int(n_pv * 0.7) : int(n_pv * 0.9)]
-    test_df_pv = data_processed_pv[int(n_pv * 0.9) :]
+    train_df_pv = data_processed_pv[0 : int(n_pv * train_ratio)]
+    val_df_pv = data_processed_pv[
+        int(n_pv * train_ratio) : int(n_pv * (train_ratio + val_ratio))
+    ]
 
-    sequences_pv = SequenceGenerator(
+    sequences_pv = PhotovoltaicDataWindowGenerator(
         input_width=INPUT_WIDTH,
         label_width=LABEL_WIDTH,
         shift=SHIFT,
-        number_sequences=sequences,
+        number_sequences=10_000,
         train_df=train_df_pv,
         val_df=val_df_pv,
-        test_df=test_df_pv,
         label_columns=["electricity"],
     )
 
-    n_forecast = len(data_processed_forecast)
-    train_df_forecast = data_processed_forecast[0 : int(n_forecast * 0.7 / 24) * 24]
-    val_df_forecast = data_processed_forecast[
-        int(n_forecast * 0.7 / 24) * 24 : int(n_forecast * 0.9 / 24) * 24
-    ]
-    # test_df_forecast = data_processed_forecast[int(n_forecast * 0.9 / 24) * 24 :]
+    try:
+        assert train_ratio + val_ratio + test_ratio == 1
+    except AssertionError:
+        print("❌ The sum of the train, validation and test ratios must be equal to 1.")
+        return None
 
-    train_dataset_forecast = SequenceForecastDataset(
+    n_forecast = len(data_processed_forecast)
+    train_df_forecast = data_processed_forecast[
+        0 : int(n_forecast * train_ratio / 24) * 24
+    ]
+    val_df_forecast = data_processed_forecast[
+        int(n_forecast * 0.7 / 24) * 24 : int(
+            n_forecast * (train_ratio + val_ratio) / 24
+        )
+        * 24
+    ]
+
+    train_dataset_forecast = WeatherForecastDataset(
         df=train_df_forecast, label_columns=["electricity"]
     )
-    val_dataset_forecast = SequenceForecastDataset(
+    val_dataset_forecast = WeatherForecastDataset(
         df=val_df_forecast, label_columns=["electricity"]
     )
-    # test_dataset_forecast = SequenceForecastDataset(
-    #     df=test_df_forecast, label_columns=["electricity"]
-    # )
 
     if DATASET == "pv":
         train_dataset = sequences_pv.train
         val_dataset = sequences_pv.val
-        # test_dataset = sequences_pv.test
         n_features = train_dataset.tensors[0].shape[-1]
     else:
         train_dataset = train_dataset_forecast
         val_dataset = val_dataset_forecast
-        # test_dataset = test_dataset_forecast
         n_features = train_dataset.example[0].shape[-1]
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
-    # test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
+    ########### Train the model ###############################################
+    # ==========================================================================
     model = LSTMModel_2(p=n_features)
     loss_fn = nn.MSELoss()
-    optim = torch.optim.Adam(params=model.parameters(), lr=learning_rate)
-
-    def training_one_epoch(model, train_dataloader, val_dataloader):
-        size = len(train_dataloader.dataset)
-        running_loss = 0
-        for batch, data in enumerate(train_dataloader):
-            X, y = data
-            output = model(X)
-            loss = loss_fn(output, y)
-
-            optim.zero_grad()
-            loss.backward()
-            optim.step()
-            running_loss += loss.item()
-            mae = torch.mean(abs(output - y))
-
-            if batch % 10 == 9:
-                loss, current = loss.item(), batch * batch_size + len(X)
-                mlflow.log_metric("train_loss", loss, step=current)
-                mlflow.log_metric("train_mae", mae, step=current)
-                print(f"\tloss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
-
-        with torch.no_grad():
-            outputs = []
-            labels = []
-            vsize = len(val_dataloader.dataset)
-            running_vloss = 0.0
-
-            # In evaluation mode some model specific operations can be omitted
-            #  -> eg. dropout layer
-            # Switching to evaluation mode, eg. turning off regularisation
-            model.eval()
-            for j, vdata in enumerate(val_dataloader):
-                vinputs, vlabels = vdata
-                voutputs = model(vinputs)
-                outputs.append(voutputs)
-                labels.append(vlabels)
-                vloss = loss_fn(voutputs, vlabels)
-                vmae = torch.mean(abs(voutputs - vlabels))
-                running_vloss += vloss.item()
-
-                if j % 10 == 9:
-                    vloss, vcurrent = vloss.item(), j * batch_size + len(vinputs)
-                    mlflow.log_metric("val_loss", vloss, step=vcurrent)
-                    mlflow.log_metric("val_mae", vmae, step=vcurrent)
-                    print(f"\tval loss: {vloss:>7f}  [{vcurrent:>5d}/{vsize:>5d}]")
-
-            model.train(True)
-
-        return loss, vloss, mae, vmae
+    optim = torch.optim.Adam(params=model.parameters(), lr=LEARNING_RATE)
 
     history = defaultdict(list)
-    early_stopping = EarlyStopper(patience=patience)
+    early_stopping = EarlyStopper(patience=EARLY_STOPPING_PATIENCE)
     mlflow.set_experiment(experiment_name=MLFLOW_EXPERIMENT)
+
     for epoch in tqdm(range(EPOCHS)):
         print(f"Epoch {epoch + 1}:")
         model.train()
-        loss, vloss, mae, vmae = training_one_epoch(model, train_loader, val_loader)
+        loss, vloss, mae, vmae = training_one_epoch(
+            model,
+            train_loader,
+            val_loader,
+            loss_fn=loss_fn,
+            optimizer=optim,
+            batch_size=BATCH_SIZE,
+        )
 
         history["loss"].append(loss)
         history["val_loss"].append(vloss)
@@ -347,7 +310,7 @@ def train(
             break
 
     index_min_mae = np.argmin(history["val_mae"])
-    index_min_vloss = -patience
+    index_min_vloss = -EARLY_STOPPING_PATIENCE
     train_metrics = {
         "loss": history["loss"][index_min_vloss].detach(),
         "val_loss": history["val_loss"][index_min_vloss],
@@ -358,11 +321,11 @@ def train(
     params = {
         "context": "train",
         "dataset": DATASET,
-        "training_period": "",
+        "training_set_size": f"{(1 - test_ratio) * 100} %",
         "epochs": EPOCHS,
-        "patience": patience,
-        "learning_rate": learning_rate,
-        "batch_size": batch_size,
+        "patience": EARLY_STOPPING_PATIENCE,
+        "learning_rate": LEARNING_RATE,
+        "batch_size": BATCH_SIZE,
         "loss_function": loss_fn.__class__.__name__,
         "metric_function": "MeanAbsoluteError",
         "optimizer": optim.__class__.__name__,
@@ -394,6 +357,7 @@ def train(
 
 def evaluate(
     stage: Literal["dev", "staging", "production", "archived"] = "production",
+    split_ratio: float = 0.1,
 ) -> float:
     """
     Evaluate the performance of the latest production model on processed data
@@ -402,6 +366,8 @@ def evaluate(
     ----------
     stage : str
         Stage of the model to load (e.g., "production", "staging")
+    split_ratio : float
+        The ratio of the dataset to use for evaluation (default is 0.1)
 
     Returns
     -------
@@ -412,8 +378,9 @@ def evaluate(
 
     model = load_model(stage=stage)
     assert model is not None
-    # Query your BigQuery processed table and get data_processed using
-    # `get_data_with_cache`
+
+    ############# Query Data ###############################################
+    # ==========================================================================
     query_pv = f"""
         SELECT *
         FROM {GCP_PROJECT}.{BQ_DATASET}.processed_pv
@@ -454,63 +421,49 @@ def evaluate(
         print("❌ Not enough processed data retrieved to train on")
         return None
 
-    # Split the data into training, validating and testing sets
+    ############# Prepare the test set #######################################
+    # =========================================================================
 
     n_pv = len(data_processed_pv)
-    train_df_pv = data_processed_pv[0 : int(n_pv * 0.7)]
-    val_df_pv = data_processed_pv[int(n_pv * 0.7) : int(n_pv * 0.9)]
-    test_df_pv = data_processed_pv[int(n_pv * 0.9) :]
+    train_df_pv = data_processed_pv[0 : int(n_pv * (1 - split_ratio))]
+    test_df_pv = data_processed_pv[int(n_pv * (1 - split_ratio)) :]
 
-    sequences_pv = SequenceGenerator(
+    sequences_pv = PhotovoltaicDataWindowGenerator(
         input_width=INPUT_WIDTH,
         label_width=LABEL_WIDTH,
         shift=SHIFT,
         number_sequences=10_000,
         train_df=train_df_pv,
-        val_df=val_df_pv,
         test_df=test_df_pv,
         label_columns=["electricity"],
     )
 
     n_forecast = len(data_processed_forecast)
-    # train_df_forecast = data_processed_forecast[0 : int(n_forecast * 0.7 / 24) * 24]
-    # val_df_forecast = data_processed_forecast[
-    #     int(n_forecast * 0.7 / 24) * 24 : int(n_forecast * 0.9 / 24) * 24
-    # ]
-    test_df_forecast = data_processed_forecast[int(n_forecast * 0.9 / 24) * 24 :]
+    test_df_forecast = data_processed_forecast[
+        int(n_forecast * (1 - split_ratio) / 24) * 24 :
+    ]
 
-    # train_dataset_forecast = SequenceForecastDataset(
-    #     df=train_df_forecast, label_columns=["electricity"]
-    # )
-    # val_dataset_forecast = SequenceForecastDataset(
-    #     df=val_df_forecast, label_columns=["electricity"]
-    # )
-    test_dataset_forecast = SequenceForecastDataset(
+    test_dataset_forecast = WeatherForecastDataset(
         df=test_df_forecast, label_columns=["electricity"]
     )
 
     if DATASET == "pv":
-        # train_dataset = sequences_pv.train
-        # val_dataset = sequences_pv.val
         test_dataset = sequences_pv.test
-        # n_features = train_dataset.tensors[0].shape[-1]
     else:
-        # train_dataset = train_dataset_forecast
-        # val_dataset = val_dataset_forecast
         test_dataset = test_dataset_forecast
-        # n_features = train_dataset.example[0].shape[-1]
 
-    # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    # val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True)
+
+    ############# Evaluate the model ##########################################
+    # ==========================================================================
 
     metrics_dict = compute_regression_metrics(model, test_loader)
     mae = metrics_dict["mae"]
 
-    params = dict(
-        context="evaluate",  # Package behavior
-        evaluate_set_size="10 %",
-    )
+    params = {
+        "context": "evaluate",
+        "evaluate_set_size": f"{split_ratio * 100} %",
+    }
 
     save_results(params=params, metrics=metrics_dict)
 
@@ -549,7 +502,8 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
 
     print(Fore.MAGENTA + "\n⭐️ Use case: predict" + Style.RESET_ALL)
 
-    # Query raw PV data from BUCKET BigQuery using `get_data_with_cache`
+    ############# Query Data ###############################################
+    # ==========================================================================
     query_pv = f"""
         SELECT *
         FROM {GCP_PROJECT}.{BQ_DATASET}.raw_pv
@@ -603,6 +557,9 @@ def pred(input_pred: str = "2022-07-06") -> pd.DataFrame:
         X = data_pv_processed.select_dtypes(include=np.number)
     else:
         X = data_forecast_processed.select_dtypes(include=np.number)
+
+    ############# Make prediction ##############################################
+    # ==========================================================================
 
     X = np.expand_dims(X.values, axis=0)
     X_tensor = torch.tensor(X, dtype=torch.float32)

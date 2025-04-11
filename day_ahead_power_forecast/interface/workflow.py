@@ -1,9 +1,7 @@
 import base64
-from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
 
-from dateutil.relativedelta import relativedelta
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -14,7 +12,6 @@ from prefect import flow, task
 from day_ahead_power_forecast.interface.main import evaluate, preprocess, train
 from day_ahead_power_forecast.ml_ops.registry import mlflow_transition_model
 from day_ahead_power_forecast.params import (
-    EVALUATION_START_DATE_PV,
     GOOGLE_OAUTH_CREDENTIALS,
     PREFECT_FLOW_NAME,
     SENDER_EMAIL,
@@ -42,14 +39,30 @@ def transition_model(current_stage: str, new_stage: str):
 
 
 @task
-def notify_via_email(old_mae, new_mae, recipient_email):
+def notify_via_email(
+    old_mae: float, new_mae: float, recipient_email: str
+) -> EmailMessage:
     """
     Notify about the performance via e-mail
 
     Create and send an email message
     Print the returned  message id
-    Returns: Message object, including message id
 
+    Parameters
+    ----------
+    old_mae: float
+        The old MAE
+    new_mae: float
+        The new MAE
+    recipient_email: str
+        The recipient email address
+
+    Returns
+    -------
+    Message object, including message id
+
+    Notes
+    -----
     Load pre-authorized user credentials from the environment.
     TODO(developer) - See https://developers.google.com/identity
     for guides on implementing OAuth2 for the application.
@@ -99,16 +112,6 @@ def notify_via_email(old_mae, new_mae, recipient_email):
         # text
         message.set_content(body)
 
-        # # attachment
-        # attachment_filename = "day_ahead_power_forecast/images/screenshot-1.png"
-        # # guessing the MIME type
-        # type_subtype, _ = mimetypes.guess_type(attachment_filename)
-        # maintype, subtype = type_subtype.split("/")
-
-        # with open(attachment_filename, "rb") as fp:
-        #     attachment_data = fp.read()
-        # message.add_attachment(attachment_data, maintype, subtype)
-
         # encoded message
         encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
 
@@ -129,18 +132,12 @@ def notify_via_email(old_mae, new_mae, recipient_email):
 @flow(name=PREFECT_FLOW_NAME)
 def train_flow():
     """
-    Build the Prefect workflow for the `taxifare` package. It should:
-        - preprocess 1 month of new data, starting from EVALUATION_START_DATE
+    Build the Prefect workflow for the app. It should:
         - compute `old_mae` by evaluating the current production model in this new month period
         - compute `new_mae` by re-training, then evaluating the current production model on this new month period
         - if the new one is better than the old one, replace the current production model with the new one
-        - if neither model is good enough, send a notification!
+        - send an e-mail notification with the results
     """
-
-    min_date = EVALUATION_START_DATE_PV
-    max_date = str(
-        datetime.strptime(min_date, "%Y-%m-%d") + relativedelta(months=1)
-    ).split()[0]
 
     preprocessed = preprocess_new_data.submit()
 

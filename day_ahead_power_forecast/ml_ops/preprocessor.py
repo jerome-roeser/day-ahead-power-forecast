@@ -12,6 +12,19 @@ from day_ahead_power_forecast.ml_ops.encoders import (
 
 
 def preprocess_PV_features(X: pd.DataFrame) -> np.ndarray:
+    """
+    Preprocesses the PV features by applying time feature encoding
+
+    Parameters
+    ----------
+    X : pd.DataFrame
+        The input DataFrame containing the features to be preprocessed.
+
+    Returns
+    -------
+    X_processed : np.ndarray
+        The preprocessed features as a numpy array.
+    """
     time_encoder = FunctionTransformer(
         time_features_encoder, kw_args={"time_column_name": "local_time"}
     )
@@ -37,6 +50,22 @@ def preprocess_PV_features(X: pd.DataFrame) -> np.ndarray:
 
 
 def preprocess_forecast_features(X: pd.DataFrame) -> np.ndarray:
+    """
+    Preprocesses the weather forecast features by applying time feature and,
+    wind feature encoding. Numerical features are either standardazized or normalized.
+
+    Parameters
+    ----------
+    X : pd.DataFrame
+        The input DataFrame containing the features to be preprocessed.
+
+    Returns
+    -------
+    X_processed : np.ndarray
+        The preprocessed features as a numpy array.
+
+    """
+
     std_features = [
         "temperature",
         "dew_point",
