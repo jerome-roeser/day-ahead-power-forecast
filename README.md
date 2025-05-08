@@ -42,9 +42,6 @@ With this project I have built an ***end-to-end*** solution with ***industry sta
   - Google Artifact Registry to store Docker images
   - Cloud Run to serve the Docker image and deploy the API
 * ***Workflow*** orchestrated with `Prefect`
-  <details>
-    <summary>Prefect: details</summary>
-  </details>
 * API with `FastAPI`
 * ***Containerization*** with `Docker`
 * ***Version control*** with proper `Git` workflow
