@@ -243,7 +243,7 @@ def train(train_val_test_split: Tuple[float, float, float] = (0.7, 0.2, 0.1)) ->
     )
 
     try:
-        assert train_ratio + val_ratio + test_ratio == 1
+        assert np.allclose(train_ratio + val_ratio + test_ratio, 1)
     except AssertionError:
         print("❌ The sum of the train, validation and test ratios must be equal to 1.")
         return None
